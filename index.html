@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buildup.io</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Albert+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<!-- ================= MONOPOLY ADVANCED LOBBY ================= -->
+<div id="lobby">
+  <div class="lobby-bg" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="blob b4"></div>
+    <div class="lobby-shine"></div>
+    <div class="lobby-glow"></div>
+    <div class="lobby-grid"></div>
+    <div class="lobby-float lobby-float--1">🏠</div>
+    <div class="lobby-float lobby-float--2">💰</div>
+    <div class="lobby-float lobby-float--3">🎩</div>
+    <div class="lobby-float lobby-float--4">🃏</div>
+    <div class="lobby-float lobby-float--5">🏨</div>
+    <div class="lobby-float lobby-float--6">🎲</div>
+    <div class="lobby-float lobby-float--7">✈️</div>
+    <div class="lobby-float lobby-float--8">💳</div>
+    <div class="lobby-cards">
+      <span class="lobby-card lobby-card--1"></span>
+      <span class="lobby-card lobby-card--2"></span>
+      <span class="lobby-card lobby-card--3"></span>
+    </div>
+    <div class="lobby-orbit" aria-hidden="true">
+      <span>🏠</span><span>💰</span><span>✈️</span><span>🏨</span><span>💳</span><span>💡</span><span>🎲</span><span>🃏</span>
+    </div>
+    <div class="lobby-particles"></div>
+  </div>
+
+  <header class="hub-top" id="hubTop">
+    <span class="hub-top__brand">Buildup<span class="hub-top__accent">.io</span></span>
+    <div class="hub-top__right">
+      <button type="button" class="hub-top__coins" id="hubCoinsBtn" title="Coins — coming soon" disabled>
+        <span class="hub-top__coin-ico" aria-hidden="true">🪙</span>
+        <span id="hubCoins">—</span>
+        <span class="hub-top__badge">Soon</span>
+      </button>
+      <button type="button" class="hub-top__link" id="hubStoreBtn">Store</button>
+      <div class="hub-profile">
+        <button type="button" class="hub-profile__btn" id="hubProfileBtn" aria-expanded="false" aria-haspopup="true">
+          <span class="hub-profile__av auth-avatar" id="hubAvatar">👤</span>
+          <span class="hub-profile__chev" aria-hidden="true">▾</span>
+        </button>
+        <div class="hub-profile__menu hidden" id="hubProfileMenu">
+          <div id="hubMenuSigned">
+            <div class="hub-menu__head">
+              <span class="hub-menu__av auth-avatar" id="hubMenuAvatar">👤</span>
+              <div>
+                <b id="hubMenuName">Player</b>
+                <span id="hubMenuKarma">0 Karma points</span>
+              </div>
+            </div>
+            <button type="button" class="hub-menu__item" id="hubMenuProfile">👤 Your profile</button>
+            <button type="button" class="hub-menu__item" id="hubMenuStore">🛒 Store</button>
+            <button type="button" class="hub-menu__out" id="hubMenuSignOut">Sign out ↗</button>
+          </div>
+          <div id="hubMenuGuest" class="hub-menu__guest">
+            <p>Sign in to save progress &amp; stats</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div id="lobbyWrap" class="lobby-shell">
+    <!-- Home — centered hero (Richup-style) -->
+    <section id="lobbyHome" class="lobby-hero">
+      <h1 class="lobby-hero__title">Buildup<span class="lobby-hero__accent">.io</span></h1>
+      <p class="lobby-hero__tag">Own every street. Rule the board.</p>
+
+      <div class="home-auth" id="authBar">
+        <div id="authGuest" class="home-auth__guest">
+          <button type="button" class="auth-gbtn auth-gbtn--compact" id="googleSignInBtn" aria-label="Continue with Google"></button>
+          <div id="googleSignInMount" class="auth-gbtn-mount hidden"></div>
+          <p class="home-auth__hint hidden" id="googleSignInHint"></p>
+          <label class="home-remember">
+            <input type="checkbox" id="rememberMe" checked>
+            <span>Remember me</span>
+          </label>
+        </div>
+        <div id="authSigned" class="home-playing hidden">
+          <span class="auth-avatar" id="authAvatar">👤</span>
+          <span class="home-playing__text">Playing as <b id="authUserName">Player</b></span>
+          <button type="button" class="home-auth__link" id="authSignOut">Sign out</button>
+        </div>
+      </div>
+
+      <div class="home-cta">
+        <label class="home-playas" id="homePlayAs" for="homeNameInput">
+          <span class="home-playas__lbl">Play as</span>
+          <input type="text" id="homeNameInput" class="home-playas__input" placeholder="Enter your name" maxlength="18" autocomplete="off" spellcheck="false" inputmode="text">
+        </label>
+        <button type="button" class="home-play" id="quickPlayBtn">
+          <span class="home-play__label">Play</span>
+          <span class="home-play__chev" aria-hidden="true">››</span>
+        </button>
+        <div class="home-secondary">
+          <button type="button" class="home-sec" id="homeAllRooms">
+            <span class="home-sec__ico" aria-hidden="true">👥</span> All rooms
+          </button>
+          <button type="button" class="home-sec" id="lobbyNewRoom">
+            <span class="home-sec__ico" aria-hidden="true">🔑</span> Private game
+          </button>
+        </div>
+      </div>
+
+      <div id="publicRoomsSection" class="home-rooms hidden">
+        <div class="home-rooms__head">
+          <span>Active public rooms</span>
+          <button type="button" class="home-rooms__refresh" id="roomRefresh" title="Refresh">↻</button>
+        </div>
+        <div class="room-list" id="roomList"></div>
+        <p class="home-rooms__empty hidden" id="homeRoomsEmpty">No public games right now — create one!</p>
+      </div>
+    </section>
+
+    <!-- Create room — split: main + advanced card -->
+    <section id="lobbyCreate" class="lobby-create hidden">
+      <button type="button" class="lobby-create__back" id="lobbyBackCreate">← Back</button>
+      <div class="create-layout">
+        <div class="create-main">
+          <h2 class="lobby-create__title">New game</h2>
+          <div id="hostTraveler" class="traveler-card"></div>
+          <div class="setup-stack">
+            <div class="setup-row">
+              <span class="setup-row__label">Board</span>
+              <div id="sizeChips" class="glass-seg glass-seg--dark">
+                <button class="szchip glass-seg__btn" data-per="10" type="button">40</button>
+                <button class="szchip glass-seg__btn on" data-per="12" type="button">48</button>
+                <button class="szchip glass-seg__btn" data-per="14" type="button">56</button>
+                <button class="szchip glass-seg__btn" data-per="18" type="button">72</button>
+                <button class="szchip glass-seg__btn" data-per="custom" type="button">···</button>
+              </div>
+            </div>
+            <div id="customSize" class="setup-custom hidden">
+              <input type="range" id="szRange" min="10" max="18" step="1" value="12" aria-label="Tiles per side">
+              <b id="szLabel">48 tiles</b>
+            </div>
+            <div id="sizeInfo" class="setup-hint"></div>
+            <div class="setup-row">
+              <span class="setup-row__label">Players</span>
+              <div class="glass-seg glass-seg--dark" id="maxPlayerChips">
+                <button class="max-chip glass-seg__btn" data-max="2" type="button">2</button>
+                <button class="max-chip glass-seg__btn" data-max="3" type="button">3</button>
+                <button class="max-chip glass-seg__btn on" data-max="4" type="button">4</button>
+                <button class="max-chip glass-seg__btn" data-max="5" type="button">5</button>
+                <button class="max-chip glass-seg__btn" data-max="6" type="button">6</button>
+              </div>
+            </div>
+            <div class="setup-private">
+              <label class="glass-toggle glass-toggle--row">
+                <span class="glass-toggle__lbl"><b>Private game</b><small>Invite friends with a link</small></span>
+                <input type="checkbox" id="roomPrivate" checked>
+                <i class="glass-toggle__sw"></i>
+              </label>
+              <p class="setup-private__note" id="privateCreateHint">You'll wait on the board. Copy the invite link from the left panel.</p>
+            </div>
+          </div>
+          <button type="button" class="home-play lobby-create__go" id="startBtn">
+            <span class="home-play__label">Open lobby</span>
+            <span class="home-play__chev" aria-hidden="true">››</span>
+          </button>
+        </div>
+        <aside class="create-adv-card">
+          <h3 class="create-adv-card__title">Advanced rules</h3>
+          <div class="adv-block">
+            <span class="adv-block__label">Difficulty</span>
+            <div class="glass-seg glass-seg--dark glass-seg--adv">
+              <button class="diff-chip glass-seg__btn" data-val="relaxed" type="button">Relaxed</button>
+              <button class="diff-chip glass-seg__btn on" data-val="classic" type="button">Classic</button>
+              <button class="diff-chip glass-seg__btn" data-val="shark" type="button">Shark</button>
+            </div>
+            <p class="adv-block__hint" id="diffHint">Balanced bots and classic pacing.</p>
+          </div>
+          <div class="adv-block">
+            <span class="adv-block__label">Starting cash</span>
+            <div class="glass-seg glass-seg--dark glass-seg--grid glass-seg--adv">
+              <button class="cash-chip glass-seg__btn" data-val="1500" type="button">$1.5k</button>
+              <button class="cash-chip glass-seg__btn on" data-val="2000" type="button">$2k</button>
+              <button class="cash-chip glass-seg__btn" data-val="3000" type="button">$3k</button>
+              <button class="cash-chip glass-seg__btn" data-val="5000" type="button">$5k</button>
+              <button class="cash-chip glass-seg__btn" data-val="7500" type="button">$7.5k</button>
+              <button class="cash-chip glass-seg__btn" data-val="10000" type="button">$10k</button>
+            </div>
+            <p class="adv-block__hint" id="cashHint">$2,000 each. Standard opening bankroll.</p>
+          </div>
+          <div class="adv-block">
+            <span class="adv-block__label">GO salary</span>
+            <div class="glass-seg glass-seg--dark glass-seg--adv">
+              <button class="salary-chip glass-seg__btn" data-val="200" type="button">$200</button>
+              <button class="salary-chip glass-seg__btn on" data-val="300" type="button">$300</button>
+              <button class="salary-chip glass-seg__btn" data-val="400" type="button">$400</button>
+              <button class="salary-chip glass-seg__btn" data-val="500" type="button">$500</button>
+            </div>
+            <p class="adv-block__hint" id="salaryHint">$300 each time you pass GO.</p>
+          </div>
+          <div class="adv-toggles adv-toggles--create">
+            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>×2 sets</b><small>Double rent on a complete color group</small></span><input type="checkbox" id="ruleDouble" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Vacation pot</b><small>Taxes and fees go to a shared pot</small></span><input type="checkbox" id="ruleVacation" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Auctions</b><small>Unsold tiles go to open bid</small></span><input type="checkbox" id="ruleAuction" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>No jail rent</b><small>No rent while you sit in jail</small></span><input type="checkbox" id="ruleNoJailRent" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Mortgage</b><small>Borrow cash against owned tiles</small></span><input type="checkbox" id="ruleMortgage" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Doubles</b><small>Extra roll on doubles, 3 sends you to jail</small></span><input type="checkbox" id="ruleDoubles" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint glass-toggle--gold"><span class="glass-toggle__lbl"><b>Power cards</b><small>Rare one-shot bonus cards</small></span><input type="checkbox" id="rulePowerCards"><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint glass-toggle--mint"><span class="glass-toggle__lbl"><b>Bots</b><small>AI fills empty seats at launch</small></span><input type="checkbox" id="ruleAllowBots" checked><i class="glass-toggle__sw"></i></label>
+          </div>
+          <div class="power-preview hidden" id="powerPreview">
+            <span class="power-preview__chip">💥 Demolition</span>
+            <span class="power-preview__chip">🌀 Summon</span>
+            <span class="power-preview__chip">⚡ Rent surge</span>
+            <span class="power-preview__chip">✨ Free build</span>
+            <span class="power-preview__chip">🛡️ Shield</span>
+            <span class="power-preview__chip">🏖️ Pot pull</span>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Profile -->
+    <section id="lobbyProfile" class="hub-page hidden">
+      <button type="button" class="hub-page__back" id="profileBack">← Back to lobby</button>
+      <div class="profile-hero">
+        <span class="profile-hero__av auth-avatar" id="profileAvatar">👤</span>
+        <div class="profile-hero__info">
+          <h1 class="profile-hero__name"><span id="profileName">Player</span>
+            <button type="button" class="profile-hero__edit" id="profileEditName" title="Edit name">✎</button>
+          </h1>
+          <p class="profile-hero__email" id="profileEmail"></p>
+          <div class="profile-hero__stats">
+            <span>⭐ <b id="profileKarma">0</b> / 30</span>
+            <span>🏆 <b id="profileWinRate">0%</b> win rate</span>
+            <span>🪙 <b id="profileCoins">0</b> coins <em class="tag-soon">Soon</em></span>
+          </div>
+        </div>
+      </div>
+      <div class="profile-section">
+        <h2 class="profile-section__title">Statistics</h2>
+        <ul class="profile-stat-list">
+          <li><span>🎮</span> Played <b id="profileGamesPlayed">0</b> games</li>
+          <li><span>🏆</span> Won <b id="profileGamesWon">0</b> games</li>
+          <li><span>📅</span> Joined <b id="profileJoined">—</b></li>
+        </ul>
+      </div>
+      <div class="profile-section">
+        <h2 class="profile-section__title">Inventory</h2>
+        <div class="profile-empty">
+          <span>✨</span>
+          <p>No items yet — <b>coming soon</b></p>
+        </div>
+      </div>
+      <div class="profile-section">
+        <h2 class="profile-section__title">Upgrades</h2>
+        <div class="profile-empty">
+          <span>⬆️</span>
+          <p>Power-ups &amp; boosts — <b>coming soon</b></p>
+        </div>
+      </div>
+      <div class="profile-section">
+        <h2 class="profile-section__title">Friends</h2>
+        <div class="profile-empty">
+          <span>👥</span>
+          <p>Friends list — <b>coming soon</b></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Store -->
+    <section id="lobbyStore" class="hub-page hidden">
+      <div class="store-head">
+        <button type="button" class="hub-page__back" id="storeBack">← Back</button>
+        <div class="store-head__coins">
+          <span>🪙</span> <b id="storeCoins">0</b> Coins
+          <span class="tag-soon">Coming soon</span>
+        </div>
+      </div>
+      <div class="store-layout">
+        <nav class="store-cats" id="storeCategories"></nav>
+        <div class="store-grid" id="storeGrid"></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="overlay hidden" id="authGate"><div class="modal auth-gate-modal">
+  <h2>Join the table</h2>
+  <p id="authGateHint">Play as guest or sign in to create / join rooms.</p>
+  <button type="button" class="btn lobby-launch" id="authGateOk">Continue</button>
+</div></div>
+
+<div id="scene">
+    <div id="tilt">
+    <div id="table">
+      <span class="tcorner tr"></span><span class="tcorner bl"></span>
+      <div id="board"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Room lobby on board (Richup-style) -->
+<div id="roomLobby" class="room-lobby hidden">
+  <aside class="room-lobby__side room-lobby__side--left">
+    <div class="room-glass room-share" id="boardShareBox">
+      <h3 class="room-glass__title">Share this game</h3>
+      <div class="room-share__row">
+        <input class="room-share__input" id="boardRoomLink" type="text" readonly aria-label="Room link">
+        <button type="button" class="room-share__copy" id="boardCopyLink">Copy</button>
+      </div>
+    </div>
+    <button type="button" class="room-glass room-leave" id="boardLeaveBtn">← Return to home</button>
+  </aside>
+
+  <div class="room-lobby__center">
+    <div class="room-modal glass" id="boardCenterModal">
+      <p class="room-modal__eyebrow" id="boardRoomCode">Room · -----</p>
+      <h2 class="room-modal__title" id="boardWaitTitle">Waiting for players</h2>
+      <p class="room-modal__sub" id="boardWaitSub">Pick your token to join</p>
+      <div id="boardJoinPicker" class="board-join hidden">
+        <button type="button" class="board-join__token" id="boardJoinToken">🚂</button>
+        <div class="board-join__colors" id="boardJoinColors"></div>
+        <button type="button" class="home-play board-join__btn" id="boardJoinBtn">
+          <span class="home-play__label">Join game</span>
+          <span class="home-play__chev">››</span>
+        </button>
+      </div>
+      <div class="board-wait-slots" id="boardWaitingSlots"></div>
+    </div>
+  </div>
+
+  <aside class="room-lobby__side room-lobby__side--right">
+    <div class="room-panel">
+      <section class="room-panel__section">
+        <h3 class="room-panel__title">Players</h3>
+        <ul class="room-player-list" id="boardPlayerList"></ul>
+      </section>
+      <section class="room-panel__section room-panel__section--settings" id="boardAdvBody">
+        <h3 class="room-panel__title">Game settings</h3>
+        <p class="room-panel__lock hidden" id="boardAdvHostOnly">View only — host can edit</p>
+        <div class="adv-block">
+          <span class="adv-block__label">Board</span>
+          <div class="glass-seg glass-seg--dark">
+            <button class="board-sz glass-seg__btn" data-per="10" type="button">40</button>
+            <button class="board-sz glass-seg__btn on" data-per="12" type="button">48</button>
+            <button class="board-sz glass-seg__btn" data-per="14" type="button">56</button>
+            <button class="board-sz glass-seg__btn" data-per="18" type="button">72</button>
+          </div>
+        </div>
+        <div class="adv-block">
+          <span class="adv-block__label">Starting cash</span>
+          <div class="glass-seg glass-seg--dark glass-seg--grid">
+            <button class="board-cash glass-seg__btn" data-val="1500" type="button">$1.5k</button>
+            <button class="board-cash glass-seg__btn on" data-val="2000" type="button">$2k</button>
+            <button class="board-cash glass-seg__btn" data-val="3000" type="button">$3k</button>
+            <button class="board-cash glass-seg__btn" data-val="5000" type="button">$5k</button>
+            <button class="board-cash glass-seg__btn" data-val="7500" type="button">$7.5k</button>
+            <button class="board-cash glass-seg__btn" data-val="10000" type="button">$10k</button>
+          </div>
+        </div>
+        <div class="adv-block">
+          <span class="adv-block__label">GO salary</span>
+          <div class="glass-seg glass-seg--dark">
+            <button class="board-sal glass-seg__btn" data-val="200" type="button">$200</button>
+            <button class="board-sal glass-seg__btn on" data-val="300" type="button">$300</button>
+            <button class="board-sal glass-seg__btn" data-val="400" type="button">$400</button>
+            <button class="board-sal glass-seg__btn" data-val="500" type="button">$500</button>
+          </div>
+        </div>
+        <div class="adv-toggles adv-toggles--board">
+          <label class="glass-toggle glass-toggle--mini"><span>×2 sets</span><input type="checkbox" class="board-rule" data-rule="double" checked><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini"><span>Vacation</span><input type="checkbox" class="board-rule" data-rule="vacation" checked><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini"><span>Auctions</span><input type="checkbox" class="board-rule" data-rule="auction" checked><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini"><span>No jail</span><input type="checkbox" class="board-rule" data-rule="noJailRent" checked><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini"><span>Mortgage</span><input type="checkbox" class="board-rule" data-rule="mortgage" checked><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini"><span>Doubles</span><input type="checkbox" class="board-rule" data-rule="doubles" checked><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini glass-toggle--gold"><span>Power cards</span><input type="checkbox" class="board-rule" data-rule="powerCards"><i class="glass-toggle__sw"></i></label>
+          <label class="glass-toggle glass-toggle--mini glass-toggle--mint"><span>Bots</span><input type="checkbox" class="board-rule" data-rule="allowBots" checked><i class="glass-toggle__sw"></i></label>
+        </div>
+      </section>
+      <button type="button" class="home-play room-launch hidden" id="boardLaunchBtn">
+        <span class="home-play__label">Launch game</span>
+        <span class="home-play__chev">››</span>
+      </button>
+    </div>
+  </aside>
+</div>
+
+<div id="hud" class="hidden">
+    <div id="hudRight">
+      <div id="playersCard" class="glass"></div>
+      <div id="tradeCard" class="glass hidden">
+        <div class="hud-card-head hud-card-head--trade">
+          <span class="hud-card-icon" aria-hidden="true">🤝</span>
+          <h4 class="trade-card-title">Trading</h4>
+        </div>
+        <div class="trade-recent">
+          <div class="trade-recent-label">Active trades</div>
+          <div id="tradeOpenList" class="trade-feed-list"></div>
+        </div>
+        <div class="trade-recent">
+          <div class="trade-recent-label">Past trades</div>
+          <div id="tradeRecentList" class="trade-feed-list"></div>
+        </div>
+        <p class="trade-card-hint">Tap a trade to see who offers what. Propose anytime — not only on your turn.</p>
+        <button class="btn trade-card-btn" id="tradeBtn" type="button">+ New trade offer</button>
+      </div>
+  </div>
+  <div id="logDrawer" class="glass">
+    <div class="log-drawer-head">
+      <div class="log-drawer-title">
+        <span class="log-drawer-icon" aria-hidden="true">📜</span>
+        <h3>Activity Log</h3>
+      </div>
+      <button type="button" class="log-drawer-toggle" id="logBtn">Hide</button>
+    </div>
+    <div id="log" class="log-scroll"></div>
+  </div>
+    <div id="dock" class="hub-dock">
+    <button class="btn" id="rollBtn">🎲 Roll Dice</button>
+    <button class="btn" id="buyBtn">Buy</button>
+      <button class="btn ghost" id="auctionBtn">Auction</button>
+    <button class="btn ghost" id="skipBtn">Pass</button>
+    <button class="btn ghost" id="endBtn">End Turn</button>
+    <button class="btn" id="jailPayBtn">Pay $100 fine</button>
+    <button class="btn ghost" id="jailCardBtn">Use jail card</button>
+    <button class="btn hidden" id="settleDebtBtn" type="button">Pay debt</button>
+    <button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="cardModal"><div class="modal">
+  <div class="drawcard" id="drawCardBody"><div class="ct" id="dcTitle"></div><div class="ci" id="dcIcon"></div><div class="cx" id="dcText"></div></div>
+  <button class="btn" id="dcOk">Continue</button>
+</div></div>
+
+<div class="overlay hidden" id="powerAwardModal"><div class="modal power-modal">
+  <div class="power-award">
+    <span class="power-award__badge">Rare find</span>
+    <div class="power-award__icon" id="powerAwardIcon">🃏</div>
+    <h2 id="powerAwardName">Power card</h2>
+    <p id="powerAwardDesc"></p>
+  </div>
+  <button class="btn vio" id="powerAwardOk" type="button">Add to hand</button>
+</div></div>
+
+<div class="overlay hidden" id="powerCardsModal"><div class="modal power-modal power-modal--hand">
+  <div class="power-hand-head">
+    <span class="power-hand-eyebrow">Your arsenal</span>
+    <h2>Power cards</h2>
+    <p class="power-hand-hint">Play on your turn before or after rolling. One shot each.</p>
+  </div>
+  <div class="power-hand-list" id="powerHandList"></div>
+  <button class="btn ghost" id="powerCardsClose" type="button">Close</button>
+</div></div>
+
+<div class="overlay hidden" id="powerTargetModal"><div class="modal power-modal power-modal--target">
+  <div class="power-hand-head">
+    <span class="power-hand-eyebrow" id="powerTargetEyebrow">Choose target</span>
+    <h2 id="powerTargetTitle">Pick a tile</h2>
+  </div>
+  <div class="power-target-list" id="powerTargetList"></div>
+  <button class="btn ghost" id="powerTargetCancel" type="button">Cancel</button>
+</div></div>
+
+<div class="overlay hidden" id="manageModal"><div class="modal">
+  <h2>Manage Estate</h2><div id="manageList"></div>
+  <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn ghost" id="manageClose">Done</button></div>
+</div></div>
+
+  <div class="overlay hidden" id="propModal"><div class="modal"><div class="prop-card" id="propCardBody"></div></div></div>
+
+<div class="overlay hidden" id="aucModal"><div class="modal auc-sheet">
+    <div class="auc-top"><span class="auc-chip">🔨 Live auction</span></div>
+    <div class="auc-hero" id="aucPropHead"></div>
+    <div class="auc-bid-stage">
+      <div class="auc-bid-ring">
+        <div class="auc-bid-label">Highest bid</div>
+        <div class="auc-bid-amount" id="aucBid">$0</div>
+        <div class="auc-bid-leader">
+          <span class="auc-lead-av" id="aucLeadAv">—</span>
+          <span id="aucLeader">No bids yet</span>
+        </div>
+      </div>
+    </div>
+    <div class="auc-roster" id="aucPlayers"></div>
+    <div class="auc-status" id="aucStatus"></div>
+    <div class="auc-actions" id="aucBtns">
+      <button class="btn auc-act" id="aucB10" type="button">+$10</button>
+      <button class="btn auc-act" id="aucB50" type="button">+$50</button>
+      <button class="btn auc-act" id="aucB100" type="button">+$100</button>
+      <button class="btn ghost auc-act auc-act--fold" id="aucFold" type="button">Fold</button>
+    </div>
+    <div class="auc-log-wrap">
+      <div class="auc-log-label">Bid history</div>
+      <div class="auc-log" id="aucHistory"></div>
+    </div>
+    <details class="auc-rent-details">
+      <summary>Property details &amp; rent</summary>
+      <div class="auc-rent-panel" id="aucRentPanel"></div>
+    </details>
+  </div></div>
+
+  <div class="overlay hidden" id="tradeModal"><div class="modal trade-sheet">
+    <div class="trade-head">
+      <span class="trade-head__eyebrow">New offer</span>
+      <h2>Create trade</h2>
+    </div>
+    <div class="trade-body">
+      <p class="trade-step-label">1 · Who do you want to trade with?</p>
+      <div class="trade-player-list" id="tradePlayerPick"></div>
+      <p class="trade-step-label">2 · Pick what each side gives</p>
+      <div class="trade-swap trade-swap--idle" id="tradeCols">
+        <div class="trade-pane trade-pane--give">
+          <div class="trade-pane__head">
+            <h4 id="tradeOfferHeading">You give</h4>
+            <span class="trade-pane__wallet" id="tradeOfferWallet"></span>
+          </div>
+          <div class="trade-list" id="tradeOfferList"></div>
+          <div class="trade-slider">
+            <div class="trade-slider__row">
+              <span class="trade-slider__label">Cash</span>
+              <strong class="trade-slider__val" id="tradeOfferCashVal">$0</strong>
+            </div>
+            <input type="range" class="trade-range" id="tradeOfferCash" min="0" max="0" step="10" value="0" aria-label="Cash you offer">
+          </div>
+        </div>
+        <div class="trade-swap__divider" aria-hidden="true"><span>⇄</span></div>
+        <div class="trade-pane trade-pane--get">
+          <div class="trade-pane__head">
+            <h4 id="tradeWantHeading">You receive</h4>
+            <span class="trade-pane__wallet" id="tradeWantWallet"></span>
+          </div>
+          <div class="trade-list" id="tradeWantList"></div>
+          <div class="trade-slider">
+            <div class="trade-slider__row">
+              <span class="trade-slider__label">Cash</span>
+              <strong class="trade-slider__val" id="tradeWantCashVal">$0</strong>
+            </div>
+            <input type="range" class="trade-range trade-range--muted" id="tradeWantCash" min="0" max="0" step="10" value="0" disabled aria-label="Cash you want">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="trade-foot">
+      <button class="btn ghost trade-foot__cancel" id="tradeCancel" type="button">Cancel</button>
+      <button class="btn vio trade-foot__send" id="tradePropose" type="button" disabled>Send offer</button>
+  </div>
+</div></div>
+
+  <div class="overlay hidden" id="tradeReviewModal"><div class="modal trade-review">
+    <div class="trade-review-head">
+      <span class="trade-review-eyebrow" id="tradeReviewEyebrow">Incoming offer</span>
+      <h2 id="tradeReviewTitle">Review trade</h2>
+    </div>
+    <div class="trade-review-parties" id="tradeReviewParties"></div>
+    <div class="trade-review-history-wrap">
+      <div class="trade-review-history-label">Negotiation</div>
+      <div id="tradeReviewHistory" class="trade-review-history"></div>
+    </div>
+    <p class="trade-review-note" id="tradeReviewNote"></p>
+    <div class="trade-review-actions" id="tradeReviewActions">
+      <button class="btn ghost" id="tradeReject" type="button">Reject</button>
+      <button class="btn ghost" id="tradeNegotiate" type="button">Negotiate</button>
+      <button class="btn vio" id="tradeAccept" type="button">Accept</button>
+    </div>
+    <div class="trade-review-actions trade-review-actions--solo hidden" id="tradeReviewSolo">
+      <button class="btn ghost" id="tradeReviewClose" type="button">Close</button>
+      <button class="btn vio" id="tradeReviewNegotiate" type="button">Negotiate</button>
+    </div>
+  </div></div>
+
+<div class="overlay hidden" id="winModal"><div class="modal">
+  <div class="ico">🏆</div><h2 id="winName"></h2><p id="winSub"></p>
+  <button class="btn" onclick="location.reload()">Play again</button>
+</div></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

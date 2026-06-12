@@ -1,0 +1,28 @@
+{
+  "name": "world-tycoon",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node server/index.js",
+    "dev:clean": "for p in 3001 5173 5174 5175 5176; do lsof -ti :$p 2>/dev/null | xargs kill -9 2>/dev/null; done; echo 'Stopped dev servers'",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/index.js",
+    "preview": "vite preview"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "google-auth-library": "^9.15.1",
+    "jsonwebtoken": "^9.0.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

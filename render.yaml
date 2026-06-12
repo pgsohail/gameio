@@ -1,0 +1,21 @@
+# Free deploy on Render: https://render.com
+# 1. Push this repo to GitHub
+# 2. Render Dashboard → New → Blueprint → connect repo
+# 3. Add VITE_GOOGLE_CLIENT_ID + GOOGLE_CLIENT_ID (same value) if using Google sign-in
+services:
+  - type: web
+    name: buildup-io
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
