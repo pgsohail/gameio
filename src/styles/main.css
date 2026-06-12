@@ -155,6 +155,8 @@ body.lobby-booting #roomLobby{opacity:0;pointer-events:none}
 
 /* ---------- light glass property tiles ---------- */
 .tile{
+  --tile-font:'Fjalla One',system-ui,sans-serif;
+  font-family:var(--tile-font);
   position:relative;z-index:1;border-radius:10px;cursor:pointer;overflow:visible;
   background:linear-gradient(165deg, rgba(255,255,255,.32) 0%, rgba(255,255,255,.18) 45%, rgba(255,255,255,.1) 100%);
   border:1px solid rgba(255,255,255,.32);
@@ -371,8 +373,8 @@ canvas.cloth-flag{
   gap:0;width:100%;line-height:1.08;text-align:center;
 }
 .tile-engrave span{
-  display:block;font-family:'Marcellus',serif;font-weight:400;
-  letter-spacing:.04em;
+  display:block;font-family:var(--tile-font);font-weight:400;
+  letter-spacing:.05em;
   color:rgba(255,255,255,.88);
   text-shadow:
     0 1px 0 rgba(255,255,255,.35),
@@ -380,24 +382,24 @@ canvas.cloth-flag{
     0 2px 4px rgba(0,0,0,.45);
 }
 .tile-engrave--city span{
-  font-size:clamp(10px,calc(var(--edge)*.2),13.5px);
-  font-family:'Albert Sans',system-ui,sans-serif;
-  font-weight:900;letter-spacing:.02em;
+  font-size:clamp(11px,calc(var(--edge)*.24),15.5px);
+  font-family:var(--tile-font);
+  font-weight:400;letter-spacing:.04em;
   color:#fff;
   text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.5);
 }
 .tile-engrave--sm span,
 .tile-engrave--prem span{
-  font-size:clamp(7.5px,calc(var(--edge)*.14),10px);
-  letter-spacing:.04em;
+  font-size:clamp(9px,calc(var(--edge)*.17),12px);
+  letter-spacing:.05em;
   line-height:1.12;
-  font-family:'Albert Sans',system-ui,sans-serif;font-weight:800;
+  font-family:var(--tile-font);font-weight:400;
   color:#fff;
   text-shadow:0 1px 3px rgba(0,0,0,.7),0 0 1px rgba(0,0,0,.45);
 }
 .tile-engrave--prem span{
-  font-size:clamp(7px,calc(var(--edge)*.13),9.5px);
-  font-weight:800;letter-spacing:.02em;text-transform:none;
+  font-size:clamp(8.5px,calc(var(--edge)*.16),11.5px);
+  font-weight:400;letter-spacing:.04em;text-transform:none;
 }
 .tile-prem .tile-engrave--prem span,
 .tile-prem .tile-engrave--sm span{
@@ -407,9 +409,9 @@ canvas.cloth-flag{
 /* ================= corner landmark cards ================= */
 .corner-name{
   display:block;
-  font-family:'Albert Sans',system-ui,sans-serif;
-  font-size:clamp(12px,calc(var(--corner)*.175),19px);
-  font-weight:900;
+  font-family:var(--tile-font);
+  font-size:clamp(13px,calc(var(--corner)*.2),22px);
+  font-weight:400;
   line-height:1.05;
   letter-spacing:.04em;
   text-transform:uppercase;
@@ -652,7 +654,8 @@ canvas.cloth-flag{
 }
 .tile-prem__price{
   position:relative;z-index:2;margin-top:auto;
-  font-size:clamp(7.5px,calc(var(--edge)*.14),10.5px);font-weight:900;
+  font-family:var(--tile-font);
+  font-size:clamp(9px,calc(var(--edge)*.17),12.5px);font-weight:400;
   padding:3px 8px;border-radius:99px;
   background:rgba(8,6,14,.72);color:#fff;border:1px solid rgba(255,255,255,.22);flex-shrink:0;
   letter-spacing:.04em;
@@ -688,23 +691,25 @@ canvas.cloth-flag{
 .s-right .flag-badge{left:calc(clamp(28px,calc(var(--edge)*.52),40px)/-2);top:50%;transform:translateY(-50%)}
 
 .tile-name{
-  font-weight:800;font-size:clamp(9.5px,calc(var(--edge)*.19),13px);
-  line-height:1.2;letter-spacing:.02em;
+  font-family:var(--tile-font);
+  font-weight:400;font-size:clamp(11px,calc(var(--edge)*.23),15.5px);
+  line-height:1.15;letter-spacing:.04em;
   color:#fff;
   padding:0 3px;margin:0;width:100%;
   word-break:break-word;hyphens:auto;
   text-rendering:optimizeLegibility;
   text-shadow:0 1px 2px rgba(0,0,0,.65),0 0 1px rgba(0,0,0,.4);
 }
-.t-city .tile-name{font-weight:900;color:#fff}
+.t-city .tile-name{font-weight:400;color:#fff}
 .tile-price{
   display:inline-flex;align-items:center;justify-content:center;
+  font-family:var(--tile-font);
   background:rgba(20,16,32,.78);
   border:1px solid rgba(255,255,255,.18);
   border-radius:999px;
   padding:3px 10px;margin-top:auto;
-  font-size:clamp(8.5px,calc(var(--edge)*.17),11.5px);
-  font-weight:900;letter-spacing:.04em;
+  font-size:clamp(9.5px,calc(var(--edge)*.2),13px);
+  font-weight:400;letter-spacing:.05em;
   color:#FAFAFF;white-space:nowrap;
   flex-shrink:0;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset;
@@ -717,7 +722,7 @@ canvas.cloth-flag{
   filter:drop-shadow(0 2px 4px rgba(0,0,0,.45));
 }
 .tile-icon--air{font-size:clamp(16px,calc(var(--edge)*.32),22px)}
-.tile.corner .tile-name,.tile.corner .tile-engrave span{font-size:clamp(10px,calc(var(--corner)*.13),15px)}
+.tile.corner .tile-name,.tile.corner .tile-engrave span{font-size:clamp(11px,calc(var(--corner)*.16),17px)}
 /* estate skyline — grows with each upgrade */
 .tile-estate{
   width:100%;min-height:clamp(26px,calc(var(--edge)*.44),42px);
@@ -1036,9 +1041,9 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 }
 .tile-cash-fx__pill{
   display:inline-block;
-  font-family:'Marcellus',serif;
-  font-size:clamp(15px,calc(var(--edge)*.48),26px);
-  font-weight:900;letter-spacing:.03em;white-space:nowrap;line-height:1;
+  font-family:var(--tile-font);
+  font-size:clamp(16px,calc(var(--edge)*.52),28px);
+  font-weight:400;letter-spacing:.04em;white-space:nowrap;line-height:1;
   padding:clamp(4px,calc(var(--edge)*.08),8px) clamp(8px,calc(var(--edge)*.14),14px);
   border-radius:10px;
   border:2px solid rgba(255,255,255,.45);
