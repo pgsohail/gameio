@@ -656,9 +656,26 @@
     </div>
   </div></div>
 
-<div class="overlay hidden" id="winModal"><div class="modal">
-  <div class="ico">🏆</div><h2 id="winName"></h2><p id="winSub"></p>
-  <button class="btn" onclick="location.reload()">Play again</button>
+<div class="overlay hidden" id="winModal"><div class="modal game-over-modal">
+  <div class="game-over-modal__burst" aria-hidden="true"></div>
+  <p class="game-over-modal__eyebrow">Game over!</p>
+  <p class="game-over-modal__lead">and the winner is...</p>
+  <div class="game-over-modal__winner" id="winWinner">
+    <span class="game-over-modal__trophy" aria-hidden="true">🏆</span>
+    <span class="game-over-modal__avatar" id="winWinnerEmoji"></span>
+    <span class="game-over-modal__name" id="winWinnerName"></span>
+    <span class="game-over-modal__worth" id="winWinnerWorth"></span>
+  </div>
+  <button type="button" class="game-over-modal__share" id="winShareBtn">Share with friends</button>
+  <h3 class="game-over-modal__stats-title">Game statistics</h3>
+  <p class="game-over-modal__stats-sub">Leaderboard</p>
+  <div class="game-over-modal__board">
+    <div class="game-over-modal__board-head" aria-hidden="true">
+      <span>#</span><span>Player</span><span>Turns</span><span>Net worth</span>
+    </div>
+    <div id="winLeaderboard"></div>
+  </div>
+  <button type="button" class="btn game-over-modal__again" id="winPlayAgainBtn">Play again</button>
 </div></div>
 
   <script type="module" src="/src/main.js"></script>

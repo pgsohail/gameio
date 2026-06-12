@@ -6,7 +6,9 @@ import { buildTileParts, tileIcon as tileIconHTML } from '../ui/tiles.js';
 import { buildPropSheet, propBodyHTML } from '../ui/propModal.js';
 import { renderCountryBrackets, scheduleCountryBrackets } from '../ui/countryBrackets.js';
 import { Dice3D, DICE_ROLL_MS } from '../ui/dice.js';
-import { playCountryMonopoly, playJailBars, playPurchaseTing, playTradeSuccess } from '../lib/sounds.js';
+import {
+  playCountryMonopoly, playGameOverWin, playJailBars, playPurchaseTing, playTradeSuccess,
+} from '../lib/sounds.js';
 import {
   bindPropDockResize, clearPropDock, clearPropTileFocus, focusPropTile,
   playBuildAnimation, playCountryMonopolyAnim, playDestroyAnimationSync, playJailArrest, playPurchaseGlow,
@@ -168,6 +170,7 @@ function exportGameState() {
       powerCards: p.powerCards ? [...p.powerCards] : [],
       rentSurge: p.rentSurge,
       taxShield: p.taxShield,
+      turnsSurvived: p.turnsSurvived || 0,
     })),
     tiles: TILES.map(t => ({
       owner: t.owner,
@@ -230,6 +233,7 @@ function importGameState(state) {
       powerCards: sp.powerCards || [],
       rentSurge: sp.rentSurge,
       taxShield: sp.taxShield,
+      turnsSurvived: sp.turnsSurvived || 0,
     });
   });
   if (state.tiles) {
@@ -343,6 +347,7 @@ function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }
       powerCards: [],
       rentSurge: false,
       taxShield: false,
+      turnsSurvived: 0,
     }));
     S.fortune = shuffle(FORTUNE);
     S.treasury = shuffle(TREASURY);
@@ -1119,6 +1124,7 @@ function liquidate(p,target){
 }
 function bankrupt(p,creditor){
   if(p.dead)return;p.dead=true;
+  if(p.eliminatedAt==null)p.eliminatedAt=S.players.reduce((n,x)=>n+(x.turnsSurvived||0),0);
   log(`💥 <b>${p.name}</b> goes <b>bankrupt</b>${creditor?` — assets pass to <b>${creditor.name}</b>`:''}.`,p);
   ownedBy(p).forEach(t=>{t.houses=0;
     if(creditor&&!creditor.dead)t.owner=creditor.id;
@@ -1126,12 +1132,56 @@ function bankrupt(p,creditor){
   if(creditor)creditor.cash+=Math.max(0,p.cash);
   p.cash=0;renderAll();checkWin();
 }
+function gameOverLeaderboard(winner){
+  return [...S.players].sort((a,b)=>{
+    if(a.id===winner.id)return -1;
+    if(b.id===winner.id)return 1;
+    if(!a.dead&&b.dead)return -1;
+    if(a.dead&&!b.dead)return 1;
+    const td=(b.turnsSurvived||0)-(a.turnsSurvived||0);
+    if(td)return td;
+    return netWorth(b)-netWorth(a);
+  });
+}
+
+function showGameOverModal(winner){
+  $('winWinnerEmoji').textContent=winner.emoji;
+  $('winWinnerName').textContent=winner.name;
+  $('winWinnerWorth').textContent=`${fmt(netWorth(winner))} · ${ownedBy(winner).length} properties`;
+  const lb=$('winLeaderboard');
+  if(lb){
+    lb.innerHTML=gameOverLeaderboard(winner).map((p,i)=>{
+      const isWin=p.id===winner.id;
+      return `<div class="game-over-row${isWin?' game-over-row--winner':''}" style="animation-delay:${0.25+i*0.07}s">
+        <span class="game-over-row__rank">${i+1}</span>
+        <span class="game-over-row__player"><span class="game-over-row__tok">${p.emoji}</span><span>${p.name}</span>${isWin?'<span class="game-over-row__badge">winner</span>':''}</span>
+        <span class="game-over-row__stat">${p.turnsSurvived||0}</span>
+        <span class="game-over-row__stat">${fmt(netWorth(p))}</span>
+      </div>`;
+    }).join('');
+  }
+  $('winShareBtn').onclick=async()=>{
+    const text=`${winner.emoji} ${winner.name} won ${S.rules.title}!`;
+    const url=location.href.split('?')[0];
+    try{
+      if(navigator.share)await navigator.share({title:'Buildup.io',text,url});
+      else{
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        const btn=$('winShareBtn');
+        const prev=btn?.textContent;
+        if(btn)btn.textContent='Link copied!';
+        setTimeout(()=>{if(btn&&prev)btn.textContent=prev;},2000);
+      }
+    }catch{/* cancelled */}
+  };
+  $('winPlayAgainBtn').onclick=()=>location.reload();
+  $('winModal')?.classList.remove('hidden');
+  playGameOverWin();
+}
+
 function checkWin(){
   const al=alive();
-  if(al.length===1&&!S.over){S.over=true;const w=al[0];
-    $('winName').textContent=`${w.emoji} ${w.name} wins ${S.rules.title}!`;
-    $('winSub').textContent=`Final empire: ${fmt(netWorth(w))} across ${ownedBy(w).length} properties.`;
-    $('winModal')?.classList.remove('hidden');}
+  if(al.length===1&&!S.over){S.over=true;showGameOverModal(al[0]);}
   return S.over;
 }
 
@@ -1145,6 +1195,7 @@ function startTurn(){
   S.turnStartedAt=Date.now();
   S.voteKick={voters:[]};
   const p=S.cur;
+  if(!p.dead)p.turnsSurvived=(p.turnsSurvived||0)+1;
   p.rentSurge=false;
   if(p.jail){S.phase='jail';msg(`${p.name} is in prison (attempt ${p.jailTurns+1} of 3).`);}
   else{S.phase='roll';msg(turnMsg(p));}

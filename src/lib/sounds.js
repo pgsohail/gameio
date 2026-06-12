@@ -41,3 +41,34 @@ export function playBotJoin(stagger = 0) {
   tone(660, { duration: 0.1, type: 'square', gain: 0.04, delay: stagger });
   tone(990, { duration: 0.12, gain: 0.035, delay: stagger + 0.05 });
 }
+
+export function playCountryMonopoly() {
+  tone(523, { duration: 0.15, gain: 0.07 });
+  tone(659, { duration: 0.15, gain: 0.06, delay: 0.1 });
+  tone(784, { duration: 0.2, gain: 0.07, delay: 0.2 });
+  tone(1047, { duration: 0.35, gain: 0.08, delay: 0.32 });
+}
+
+export function playJailBars() {
+  for (let i = 0; i < 4; i++) {
+    tone(180, { duration: 0.08, type: 'square', gain: 0.05, delay: i * 0.12 });
+  }
+}
+
+export function playPurchaseTing() {
+  tone(1200, { duration: 0.08, gain: 0.06 });
+  tone(1600, { duration: 0.12, gain: 0.05, delay: 0.05 });
+}
+
+export function playTradeSuccess() {
+  tone(660, { duration: 0.12, type: 'triangle', gain: 0.06 });
+  tone(880, { duration: 0.14, type: 'triangle', gain: 0.06, delay: 0.08 });
+  tone(1100, { duration: 0.18, gain: 0.05, delay: 0.16 });
+}
+
+export function playGameOverWin() {
+  tone(523, { duration: 0.2, gain: 0.07 });
+  tone(659, { duration: 0.2, gain: 0.07, delay: 0.15 });
+  tone(784, { duration: 0.25, gain: 0.08, delay: 0.3 });
+  tone(1047, { duration: 0.4, gain: 0.09, delay: 0.45 });
+}
