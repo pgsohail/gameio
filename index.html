@@ -444,47 +444,48 @@
 </div>
 
 <div id="hud" class="hidden">
+    <div id="hudLeft">
+      <div id="portfolioCard" class="glass portfolio-card hidden">
+        <div class="portfolio-head">
+          <span class="portfolio-av" id="portfolioAv">🚂</span>
+          <div class="portfolio-head__meta">
+            <span class="portfolio-name" id="portfolioName">You</span>
+            <span class="portfolio-worth"><strong id="portfolioNet">$0</strong> net · <span id="portfolioCash">$0</span></span>
+          </div>
+        </div>
+        <ul class="portfolio-list" id="portfolioList"></ul>
+      </div>
+    </div>
     <div id="hudRight">
       <button type="button" class="hud-leave-mini hidden" id="hudLeaveMiniBtn" title="Leave game">Leave</button>
       <div id="playersCard" class="glass"></div>
-      <div id="playerActionsCard" class="glass player-actions-card hidden">
-        <div class="hud-card-head">
-          <span class="hud-card-icon" aria-hidden="true">⏱️</span>
-          <h4 class="player-actions-title">Turn timer</h4>
+      <div id="playerActionsCard" class="glass player-actions-card player-actions-card--compact hidden">
+        <div class="player-actions-compact">
+          <div class="turn-timer turn-timer--compact turn-timer--passive" id="turnTimer">
+            <span class="turn-timer__ring" id="turnTimerRing"></span>
+            <span class="turn-timer__icon" aria-hidden="true">⏱</span>
+          </div>
+          <div class="player-actions-compact__body">
+            <p class="turn-timer__hint turn-timer__hint--compact" id="turnTimerHint">Make a move in time.</p>
+            <div class="player-actions-btns player-actions-btns--compact">
+              <button type="button" class="vote-kick-btn vote-kick-btn--compact hidden" id="voteKickBtn">🗳️ Kick</button>
+              <button type="button" class="action-leave-btn action-leave-btn--compact" id="leaveGameBtn">Leave</button>
+              <button type="button" class="action-bankrupt-btn action-bankrupt-btn--compact" id="bankruptBtn">Out</button>
+            </div>
+            <p class="vote-kick-status vote-kick-status--compact hidden" id="voteKickStatus"></p>
+          </div>
         </div>
-        <div class="turn-timer turn-timer--passive" id="turnTimer">
-          <span class="turn-timer__ring" id="turnTimerRing"></span>
-          <span class="turn-timer__icon" aria-hidden="true">⏱️</span>
-        </div>
-        <p class="turn-timer__hint" id="turnTimerHint">Make a move in time or you&apos;ll be kicked out.</p>
-        <div class="player-actions-btns">
-          <button type="button" class="vote-kick-btn hidden" id="voteKickBtn">
-            <span aria-hidden="true">🗳️</span> Vote kick
-          </button>
-          <button type="button" class="action-leave-btn" id="leaveGameBtn">
-            <span aria-hidden="true">🚪</span> Leave game
-          </button>
-          <button type="button" class="action-bankrupt-btn" id="bankruptBtn">
-            <span aria-hidden="true">💸</span> Bankrupt
-          </button>
-        </div>
-        <p class="vote-kick-status hidden" id="voteKickStatus"></p>
       </div>
-      <div id="tradeCard" class="glass hidden">
-        <div class="hud-card-head hud-card-head--trade">
-          <span class="hud-card-icon" aria-hidden="true">🤝</span>
-          <h4 class="trade-card-title">Trading</h4>
+      <div id="tradeCard" class="glass trade-card hidden">
+        <div class="trade-card__head">
+          <h4 class="trade-card-title">Trades</h4>
+          <button class="trade-card-btn trade-card-btn--mini" id="tradeBtn" type="button">+ Offer</button>
         </div>
-        <div class="trade-recent">
-          <div class="trade-recent-label">Active trades</div>
-          <div id="tradeOpenList" class="trade-feed-list"></div>
-        </div>
-        <div class="trade-recent">
-          <div class="trade-recent-label">Past trades</div>
-          <div id="tradeRecentList" class="trade-feed-list"></div>
-        </div>
-        <p class="trade-card-hint">Tap a trade to see who offers what. Propose anytime — not only on your turn.</p>
-        <button class="btn trade-card-btn" id="tradeBtn" type="button">+ New trade offer</button>
+        <div id="tradeOpenList" class="trade-feed-list trade-feed-list--compact"></div>
+        <details class="trade-past-fold" id="tradePastFold">
+          <summary>Past trades</summary>
+          <div id="tradeRecentList" class="trade-feed-list trade-feed-list--compact"></div>
+        </details>
       </div>
   </div>
   <div id="logDrawer" class="glass">

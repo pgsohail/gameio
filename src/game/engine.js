@@ -591,6 +591,7 @@ function msUntilDiceDone(startAt){
 }
 function renderAll(){
   renderPlayers();
+  renderPortfolioCard();
   renderActionsCard();
   renderTiles();
   renderDock();
@@ -646,6 +647,46 @@ function renderPlayers(){
     </div>`;
   }).join('');
   wrap.innerHTML=`<div class="hud-card-head"><span class="hud-card-icon" aria-hidden="true">👥</span><h4 class="players-title">Travelers</h4></div><div class="players-list">${rows}</div>`;
+}
+function renderPortfolioCard(){
+  const card=$('portfolioCard');
+  if(!card)return;
+  const p=localHumanPlayer();
+  const show=!!p&&!S.over;
+  card.classList.toggle('hidden',!show);
+  if(!show)return;
+  const av=$('portfolioAv');
+  const nameEl=$('portfolioName');
+  const netEl=$('portfolioNet');
+  const cashEl=$('portfolioCash');
+  const list=$('portfolioList');
+  if(av){av.textContent=p.emoji;av.style.setProperty('--pc',p.color);}
+  if(nameEl)nameEl.textContent=p.dead?'Out of game':p.name;
+  if(netEl)netEl.textContent=fmt(netWorth(p));
+  if(cashEl)cashEl.textContent=fmt(p.cash);
+  if(!list)return;
+  const tiles=ownedBy(p).slice().sort((a,b)=>{
+    const ga=a.group||'',gb=b.group||'';
+    return ga.localeCompare(gb)||a.name.localeCompare(b.name);
+  });
+  if(!tiles.length){
+    list.innerHTML='<li class="portfolio-empty">No properties yet</li>';
+    return;
+  }
+  list.innerHTML=tiles.map(t=>{
+    const grp=GROUPS[t.group]?.color||p.color;
+    const houses=t.houses?`<span class="portfolio-houses">${t.houses===5?'🏨':t.houses+'🏠'}</span>`:'';
+    const mort=t.mortgaged?'<span class="portfolio-mort">🔒</span>':'';
+    const label=t.name.length>16?t.name.slice(0,15)+'…':t.name;
+    return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" style="--pc:${grp}" data-idx="${t.idx}" role="button" tabindex="0">
+      <span class="portfolio-dot"></span>
+      <span class="portfolio-item__name">${label}</span>
+      ${houses}${mort}
+    </li>`;
+  }).join('');
+  list.querySelectorAll('.portfolio-item').forEach(el=>{
+    el.onclick=()=>openPropDetail(+el.dataset.idx);
+  });
 }
 function aliveHumans(){
   return S.players.filter(p=>!p.dead&&!p.bot);
@@ -745,18 +786,18 @@ function renderActionsCard(){
   if(ring)ring.style.setProperty('--pct',`${pct}`);
   if(hint){
     hint.classList.remove('turn-timer__hint--urgent');
-    if(!alive)hint.textContent='You\'re out of the game — leave when ready.';
+    if(!alive)hint.textContent='Out — leave when ready.';
     else if(cur?.dead)hint.textContent='';
     else if(cur?.id===human?.id){
       if(left<=TURN_ENGAGE_WARN_MS&&!cur.turnEngaged){
-        hint.textContent='Hurry — make a move soon or you\'ll be removed from the game.';
+        hint.textContent='Hurry — move soon or removed.';
         hint.classList.add('turn-timer__hint--urgent');
       }else if(left<=TURN_ENGAGE_WARN_MS){
-        hint.textContent='You\'re active — keep playing before time runs out.';
-      }else hint.textContent='A turn timer is running. Make a move in time or you\'ll be kicked out.';
+        hint.textContent='Keep playing — time running out.';
+      }else hint.textContent='Turn timer running.';
     }else if(left<=TURN_ENGAGE_WARN_MS&&!cur?.turnEngaged){
-      hint.textContent=`${cur?.name||'Player'} needs to move soon or they\'ll be removed.`;
-    }else hint.textContent=`${cur?.name||'Player'}'s turn — timer is running.`;
+      hint.textContent=`${cur?.name||'Player'} must move soon.`;
+    }else hint.textContent=`${cur?.name||'Player'}'s turn.`;
   }
   const kickBtn=$('voteKickBtn');
   const status=$('voteKickStatus');
@@ -774,7 +815,7 @@ function renderActionsCard(){
   $('bankruptBtn')?.classList.toggle('hidden',!alive);
   const showLeave=!!human&&!S.over;
   $('leaveGameBtn')?.classList.toggle('hidden',!showLeave);
-  $('hudLeaveMiniBtn')?.classList.toggle('hidden',!showLeave);
+  $('hudLeaveMiniBtn')?.classList.add('hidden');
 }
 function ensureTurnTimer(){
   if(turnTimerInterval)return;
@@ -926,6 +967,10 @@ function renderTradeCard(){
   }
   renderOpenTrades();
   renderTradeRecent();
+  const pastFold=$('tradePastFold');
+  const hasPast=(S.recentTrades||[]).length>0;
+  pastFold?.classList.toggle('hidden',!hasPast);
+  if(pastFold&&!hasPast)pastFold.open=false;
 }
 function msg(t){const el=$('hubMsg');if(el)el.textContent=t;}
 function formatLogHtml(html){
