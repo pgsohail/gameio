@@ -16,6 +16,7 @@ const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim() || null;
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
+const REJOIN_GRACE_MS = 2 * 60 * 1000;
 const MAX_ROOMS = 400;
 const WS_PING_MS = 30_000;
 
@@ -138,7 +139,13 @@ function publicRoomList() {
     .map(roomToClient);
 }
 
-function roomToClient(room) {
+function wasRoomMember(room, userId) {
+  if (!userId) return false;
+  return room.slots?.some(s => s?.userId === userId)
+    || room.players?.some(p => p.userId === userId);
+}
+
+function roomToClient(room, viewerId = null) {
   const base = {
     id: room.id,
     private: room.private,
@@ -154,8 +161,72 @@ function roomToClient(room) {
     base.adminId = room.adminId ?? 0;
     base.gameState = room.gameState || null;
     base.stateSeq = room.stateSeq || 0;
+    if (viewerId) {
+      const kicked = room.kicked?.[viewerId];
+      if (kicked) base.kicked = kicked;
+      const absent = room.absent?.[viewerId];
+      if (absent) {
+        base.rejoinUntil = absent.until;
+        base.rejoinSecondsLeft = Math.max(0, Math.ceil((absent.until - Date.now()) / 1000));
+      }
+    }
   }
   return base;
+}
+
+function markAbsent(room, userId) {
+  if (!room || room.status !== 'playing' || !userId) return;
+  if (room.kicked?.[userId]) return;
+  if (!wasRoomMember(room, userId)) return;
+  const gp = room.gameState?.players?.find(p => p.userId === userId);
+  if (gp?.dead) return;
+  room.absent = room.absent || {};
+  const now = Date.now();
+  room.absent[userId] = { since: room.absent[userId]?.since || now, until: now + REJOIN_GRACE_MS };
+  room.updatedAt = now;
+}
+
+function clearAbsent(room, userId) {
+  if (room?.absent?.[userId]) {
+    delete room.absent[userId];
+    room.updatedAt = Date.now();
+  }
+}
+
+function kickPlayerFromGame(room, userId, reason) {
+  room.kicked = room.kicked || {};
+  room.kicked[userId] = { reason, at: Date.now() };
+  if (room.absent?.[userId]) delete room.absent[userId];
+  if (room.gameState?.players) {
+    const gp = room.gameState.players.find(p => p.userId === userId);
+    if (gp) gp.dead = true;
+  }
+  room.updatedAt = Date.now();
+  const payload = JSON.stringify({
+    type: 'game_state',
+    roomId: room.id,
+    state: room.gameState,
+    seq: room.stateSeq || Date.now(),
+  });
+  const subs = roomSubs.get(room.id);
+  if (subs) {
+    for (const ws of subs) {
+      if (ws.readyState === 1) ws.send(payload);
+    }
+  }
+}
+
+function processAbsentTimeouts() {
+  const now = Date.now();
+  for (const room of rooms.values()) {
+    if (room.status !== 'playing' || !room.absent) continue;
+    for (const [uid, info] of Object.entries(room.absent)) {
+      if (now >= info.until) {
+        kickPlayerFromGame(room, uid, 'timeout');
+        delete room.absent[uid];
+      }
+    }
+  }
 }
 
 const BOT_EMOJIS = ['🤖', '🦾', '👾', '🎮', '⚡', '🔮'];
@@ -237,6 +308,12 @@ function broadcastGameState(roomId, state, fromWs, fromUserId) {
     room.gameState = state;
     room.stateSeq = Date.now();
     room.updatedAt = Date.now();
+    if (Array.isArray(state.voteKickedUsers)) {
+      room.kicked = room.kicked || {};
+      for (const uid of state.voteKickedUsers) {
+        if (uid) room.kicked[uid] = { reason: 'vote', at: Date.now() };
+      }
+    }
   }
   const subs = roomSubs.get(roomId);
   if (!subs) return;
@@ -344,10 +421,10 @@ app.get('/api/rooms/:id', authMiddleware, (req, res) => {
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room) return res.status(404).json({ error: 'Room not found' });
   // Invite link is the secret for private lobbies — allow fetch while still in lobby
-  if (room.private && room.status !== 'lobby' && !room.slots.some(s => s?.userId === req.user.id)) {
+  if (room.private && room.status !== 'lobby' && !wasRoomMember(room, req.user.id)) {
     return res.status(403).json({ error: 'Private room' });
   }
-  res.json({ room: roomToClient(room) });
+  res.json({ room: roomToClient(room, req.user.id) });
 });
 
 app.post('/api/rooms', authMiddleware, (req, res) => {
@@ -460,7 +537,40 @@ app.post('/api/rooms/:id/leave', authMiddleware, (req, res) => {
   if (room.rules?.allowBots) syncRoomBots(room);
   room.updatedAt = Date.now();
   broadcastRoom(room.id);
-  res.json({ room: roomToClient(room), left: true });
+  res.json({ room: roomToClient(room, req.user.id), left: true });
+});
+
+app.post('/api/rooms/:id/absent', authMiddleware, (req, res) => {
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
+  if (!room || room.status !== 'playing') {
+    return res.json({ ok: true, room: room ? roomToClient(room, req.user.id) : null });
+  }
+  markAbsent(room, req.user.id);
+  broadcastRoom(room.id);
+  res.json({ ok: true, room: roomToClient(room, req.user.id) });
+});
+
+app.post('/api/rooms/:id/rejoin', authMiddleware, (req, res) => {
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
+  if (!room || room.status !== 'playing') {
+    return res.status(404).json({ error: 'Game not found' });
+  }
+  const uid = req.user.id;
+  if (room.kicked?.[uid]) {
+    const why = room.kicked[uid].reason === 'vote' ? 'vote-kicked' : 'removed';
+    return res.status(403).json({ error: why, kicked: room.kicked[uid] });
+  }
+  if (!wasRoomMember(room, uid)) {
+    return res.status(403).json({ error: 'Not in this game' });
+  }
+  const absent = room.absent?.[uid];
+  if (absent && Date.now() > absent.until) {
+    kickPlayerFromGame(room, uid, 'timeout');
+    return res.status(403).json({ error: 'rejoin-expired', kicked: room.kicked[uid] });
+  }
+  clearAbsent(room, uid);
+  broadcastRoom(room.id);
+  res.json({ room: roomToClient(room, uid) });
 });
 
 app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
@@ -577,7 +687,8 @@ wss.on('connection', (ws, req) => {
       roomSubs.get(rid).add(ws);
       const room = rooms.get(rid);
       if (room) {
-        ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room) }));
+        clearAbsent(room, ws.userId);
+        ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room, ws.userId) }));
         if (room.status === 'playing' && room.players) {
           ws.send(JSON.stringify({
             type: 'game_start',
@@ -617,13 +728,16 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    if (ws.roomId && roomSubs.has(ws.roomId)) {
-      roomSubs.get(ws.roomId).delete(ws);
+    if (ws.roomId) {
+      const room = rooms.get(ws.roomId);
+      if (room && ws.userId) markAbsent(room, ws.userId);
+      if (roomSubs.has(ws.roomId)) roomSubs.get(ws.roomId).delete(ws);
     }
   });
 });
 
 setInterval(pruneRooms, 60_000);
+setInterval(processAbsentTimeouts, 5000);
 
 const wsPing = setInterval(() => {
   for (const ws of wss.clients) {

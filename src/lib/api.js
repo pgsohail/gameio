@@ -49,8 +49,20 @@ export const roomsApi = {
   join: (id, body = {}) => api(`/api/rooms/${id}/join`, { method: 'POST', body: JSON.stringify(body) }),
   launch: id => api(`/api/rooms/${id}/launch`, { method: 'POST' }),
   leave: id => api(`/api/rooms/${id}/leave`, { method: 'POST' }),
+  markAbsent: id => api(`/api/rooms/${id}/absent`, { method: 'POST' }),
+  rejoin: id => api(`/api/rooms/${id}/rejoin`, { method: 'POST' }),
   update: (id, body) => api(`/api/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };
+
+export function markAbsentKeepalive(id) {
+  const token = getToken();
+  if (!token || !id) return;
+  fetch(`${API_BASE}/api/rooms/${id}/absent`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    keepalive: true,
+  }).catch(() => {});
+}
 
 export function connectRoomSocket(onMessage) {
   const token = getToken();

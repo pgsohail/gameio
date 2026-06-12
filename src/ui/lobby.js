@@ -4,7 +4,9 @@ import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
   onAuthChange, restoreSession, setRemember, signOut,
 } from '../lib/auth.js';
-import { connectRoomSocket, getToken, roomLink, roomsApi, subscribeWhenOpen } from '../lib/api.js';
+import {
+  connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, subscribeWhenOpen,
+} from '../lib/api.js';
 import {
   enableMultiplayer, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
 } from '../lib/multiplayer.js';
@@ -785,8 +787,10 @@ function syncPrivateHint() {
 
 const ROOM_SESSION_KEY = 'ma_active_room';
 const LOBBY_VIEW_KEY = 'ma_lobby_view';
-const REJOIN_MAX_MS = 45 * 60 * 1000;
+const REJOIN_GRACE_MS = 2 * 60 * 1000;
 let pendingInviteRoomId = null;
+let rejoinTimerInterval = null;
+let pendingRejoinRoom = null;
 
 export function setGameBrandVisible(on) {
   const el = $('gameBrand');
@@ -818,6 +822,9 @@ function pauseSessionToHome() {
   if (!isInActiveSession()) {
     showView('home');
     return;
+  }
+  if (gameStarted && currentRoomId) {
+    roomsApi.markAbsent(currentRoomId).catch(() => {});
   }
   gamePausedAway = true;
   $('hud')?.classList.add('hidden');
@@ -865,7 +872,31 @@ function persistRoomInUrl(id) {
   sessionStorage.setItem(ROOM_SESSION_KEY, id);
 }
 
+function stopRejoinTimer() {
+  if (rejoinTimerInterval) {
+    clearInterval(rejoinTimerInterval);
+    rejoinTimerInterval = null;
+  }
+  pendingRejoinRoom = null;
+}
+
+function formatRejoinCountdown(ms) {
+  const sec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function rejoinSecondsLeft(room) {
+  if (room.rejoinUntil) return Math.max(0, room.rejoinUntil - Date.now());
+  if (room.rejoinSecondsLeft != null) return room.rejoinSecondsLeft * 1000;
+  return REJOIN_GRACE_MS;
+}
+
 function hideInviteCard() {
+  stopRejoinTimer();
+  $('roomInviteCard')?.classList.remove('room-invite-card--rejoin');
+  $('roomInviteTimer')?.classList.add('hidden');
   $('roomInviteCard')?.classList.add('hidden');
 }
 
@@ -898,13 +929,91 @@ function wasPlayerInRoom(room, userId) {
 
 function canRejoinRoom(room, userId) {
   if (room.status !== 'playing' || !wasPlayerInRoom(room, userId)) return false;
-  if (Date.now() - (room.updatedAt || 0) > REJOIN_MAX_MS) return false;
+  if (room.kicked) return false;
+  const gp = room.gameState?.players?.find(p => p.userId === userId);
+  if (gp?.dead) return false;
+  if (room.rejoinUntil && Date.now() > room.rejoinUntil) return false;
   return true;
+}
+
+function rejoinBlockedMessage(room) {
+  if (room.kicked?.reason === 'vote') {
+    return 'Your teammates vote-kicked you from this game.';
+  }
+  if (room.kicked || (room.rejoinUntil && Date.now() > room.rejoinUntil)) {
+    return 'Your 2-minute rejoin window expired — you were removed from the game.';
+  }
+  const gp = room.gameState?.players?.find(p => p.userId === getUser()?.id);
+  if (gp?.dead) return 'You are no longer in this game.';
+  return 'This game ended or is no longer available.';
+}
+
+function updateRejoinTimerDisplay(room) {
+  const left = rejoinSecondsLeft(room);
+  const val = $('roomInviteTimerVal');
+  if (val) val.textContent = formatRejoinCountdown(left);
+  return left;
+}
+
+function showRejoinCard(room) {
+  pendingRejoinRoom = room;
+  pendingInviteRoomId = room.id;
+  const card = $('roomInviteCard');
+  card?.classList.add('room-invite-card--rejoin');
+  $('roomInviteEyebrow').textContent = 'Your game is waiting';
+  const idEl = $('roomInviteId');
+  if (idEl) idEl.textContent = room.id;
+  $('roomInviteSub').textContent = 'Get back in before time runs out or you\'ll be removed from the match.';
+  $('roomInviteTimer')?.classList.remove('hidden');
+  const label = $('roomInviteEnter')?.querySelector('.home-play__label');
+  if (label) label.textContent = 'Back into game';
+  $('roomInviteEnter')?.removeAttribute('disabled');
+  card?.classList.remove('hidden');
+  $('lobby')?.classList.remove('hidden');
+  showView('home');
+  updateRejoinTimerDisplay(room);
+  stopRejoinTimer();
+  rejoinTimerInterval = setInterval(async () => {
+    const r = pendingRejoinRoom;
+    if (!r) return;
+    const left = updateRejoinTimerDisplay(r);
+    if (left <= 0) {
+      stopRejoinTimer();
+      $('roomInviteSub').textContent = rejoinBlockedMessage({ rejoinUntil: Date.now() - 1 });
+      $('roomInviteTimer')?.classList.add('hidden');
+      $('roomInviteEnter')?.setAttribute('disabled', '');
+      return;
+    }
+    if (left % 10000 < 1000) {
+      try {
+        const { room: fresh } = await roomsApi.get(r.id);
+        pendingRejoinRoom = fresh;
+        if (!canRejoinRoom(fresh, getUser()?.id)) {
+          stopRejoinTimer();
+          $('roomInviteSub').textContent = rejoinBlockedMessage(fresh);
+          $('roomInviteTimer')?.classList.add('hidden');
+          $('roomInviteEnter')?.setAttribute('disabled', '');
+        }
+      } catch { /* keep counting */ }
+    }
+  }, 1000);
 }
 
 async function rejoinActiveGame(room) {
   const u = getUser();
   if (!u || !onStartGame) return false;
+  try {
+    const { room: fresh } = await roomsApi.rejoin(room.id);
+    room = fresh;
+  } catch (e) {
+    const msg = e.message === 'vote-kicked'
+      ? 'Your teammates vote-kicked you from this game.'
+      : e.message === 'rejoin-expired'
+        ? 'Your 2-minute rejoin window expired — you were removed from the game.'
+        : (e.message || 'Could not rejoin this game.');
+    showInviteError(room.id, msg, true);
+    return false;
+  }
   hideInviteCard();
   gameStarted = true;
   currentRoomId = room.id;
@@ -943,11 +1052,11 @@ async function openInviteRoom() {
   try {
     const { room } = await roomsApi.get(id);
     if (canRejoinRoom(room, u.id)) {
-      await rejoinActiveGame(room);
+      await rejoinActiveGame(pendingRejoinRoom || room);
       return;
     }
     if (room.status !== 'lobby') {
-      alert('This game ended or your session expired (45 min).');
+      showInviteError(id, rejoinBlockedMessage(room), true);
       return;
     }
     const inRoom = room.slots.some(s => s?.userId === u.id);
@@ -962,14 +1071,18 @@ async function openInviteRoom() {
 }
 
 function showInviteCard(id, message, { rejoin = false, disableEnter = false } = {}) {
+  stopRejoinTimer();
   pendingInviteRoomId = id;
+  $('roomInviteCard')?.classList.toggle('room-invite-card--rejoin', rejoin);
+  $('roomInviteEyebrow').textContent = rejoin ? 'Your game is waiting' : 'Game invite';
+  $('roomInviteTimer')?.classList.toggle('hidden', !rejoin);
   const idEl = $('roomInviteId');
   if (idEl) idEl.textContent = id;
   const sub = $('roomInviteSub');
   if (sub) sub.textContent = message;
   const enterBtn = $('roomInviteEnter');
   const label = enterBtn?.querySelector('.home-play__label');
-  if (label) label.textContent = rejoin ? 'Rejoin game' : 'Enter room';
+  if (label) label.textContent = rejoin ? 'Back into game' : 'Enter room';
   if (disableEnter) enterBtn?.setAttribute('disabled', '');
   else enterBtn?.removeAttribute('disabled');
   $('roomInviteCard')?.classList.remove('hidden');
@@ -1010,11 +1123,16 @@ async function handleRoomDeepLink() {
     const u = getUser();
     const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
     if (canRejoinRoom(room, u?.id)) {
-      await rejoinActiveGame(room);
+      showRejoinCard(room);
+      const nav = performance.getEntriesByType?.('navigation')?.[0];
+      if (nav?.type === 'reload') {
+        await rejoinActiveGame(room);
+        return true;
+      }
       return true;
     }
     if (room.status !== 'lobby') {
-      showInviteError(id, 'This game ended or your session expired.', true);
+      showInviteError(id, rejoinBlockedMessage(room), true);
       return false;
     }
     if (room.slots.every(Boolean) && !inRoom) {
@@ -1163,6 +1281,13 @@ export async function initLobby(startGame, boardStats, previewBoard) {
 
   $('roomInviteEnter')?.addEventListener('click', openInviteRoom);
   $('roomInviteDismiss')?.addEventListener('click', dismissInviteCard);
+
+  window.addEventListener('beforeunload', () => {
+    if (gameStarted && currentRoomId) markAbsentKeepalive(currentRoomId);
+  });
+  window.addEventListener('pagehide', () => {
+    if (gameStarted && currentRoomId) markAbsentKeepalive(currentRoomId);
+  });
 
   renderRoomList();
 

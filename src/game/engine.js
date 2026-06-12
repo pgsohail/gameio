@@ -178,6 +178,7 @@ function exportGameState() {
     treasuryKeys: S.treasury.map(c => c.x),
     turnStartedAt: S.turnStartedAt || 0,
     voteKick: S.voteKick ? { voters: [...(S.voteKick.voters || [])] } : { voters: [] },
+    voteKickedUsers: [...(S.voteKickedUsers || [])],
     auction: serializeAuction(),
     openTrades: (S.openTrades || []).map(t => ({
       id: t.id,
@@ -244,6 +245,7 @@ function importGameState(state) {
   if (state.treasuryKeys) S.treasury = rebuildDeck(TREASURY, state.treasuryKeys);
   S.turnStartedAt = state.turnStartedAt || S.turnStartedAt || Date.now();
   S.voteKick = state.voteKick ? { voters: [...(state.voteKick.voters || [])] } : { voters: [] };
+  S.voteKickedUsers = state.voteKickedUsers ? [...state.voteKickedUsers] : (S.voteKickedUsers || []);
   if (state.tradeSeq) tradeSeq = state.tradeSeq;
   if (state.openTrades) {
     S.openTrades = state.openTrades.map(t => ({
@@ -601,6 +603,10 @@ function checkVoteKick(){
   const mayExecute=!isMpGame()||isMpHost();
   if(count>=needed&&mayExecute){
     log(`🗳️ Vote kick — <b>${cur.name}</b> is removed for stalling.`,cur);
+    if(cur.userId){
+      if(!S.voteKickedUsers)S.voteKickedUsers=[];
+      if(!S.voteKickedUsers.includes(cur.userId))S.voteKickedUsers.push(cur.userId);
+    }
     bankrupt(cur,null);
     S.voteKick={voters:[]};
     broadcastStateNow();

@@ -2546,7 +2546,13 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 }
 .room-invite-card__title{font-size:15px;font-weight:700;color:#fff;margin-bottom:4px}
 .room-invite-card__title b{letter-spacing:.08em}
-.room-invite-card__sub{font-size:12px;color:rgba(255,255,255,.5);margin-bottom:12px;line-height:1.4}
+.room-invite-card__sub{font-size:12px;color:rgba(255,255,255,.5);margin-bottom:8px;line-height:1.4}
+.room-invite-card__timer{
+  font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:10px;
+  font-variant-numeric:tabular-nums;
+}
+.room-invite-card__timer.hidden{display:none!important}
+.room-invite-card--rejoin{border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.08)}
 .room-invite-card__enter{width:100%;max-width:100%;margin-bottom:8px}
 .room-invite-card__dismiss{
   padding:6px 10px;font-size:11px;font-weight:600;color:rgba(255,255,255,.45);
