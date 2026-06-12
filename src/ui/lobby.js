@@ -707,43 +707,19 @@ async function launchWaitingRoom() {
   }
 }
 
-async function quickPlayPublic() {
+async function openPlaySetup({ privateRoom = false } = {}) {
   if (gamePausedAway) {
     alert(gameStarted
       ? 'You have a game in progress. Tap "Return to game" on the right to continue.'
       : 'You are still in a room. Tap "Return to room" on the right to go back.');
     return;
   }
-  const u = await ensureUser();
-  if (!u) return;
-  const btn = $('quickPlayBtn');
-  btn?.setAttribute('disabled', '');
-  try {
-    const rules = { ...gatherRules(), allowBots: false };
-    const { room, created, joined } = await roomsApi.quickJoin({
-      rules,
-      maxPlayers: 2,
-      emoji: hostEmoji,
-      color: hostColor,
-    });
-    enterBoardLobby(room);
-    roomsPanelOpen = true;
-    renderRoomList();
-    const sub = $('boardWaitSub');
-    if (sub) {
-      if (created) {
-        sub.textContent = 'Your public room — other players join here first. Up to 3 travelers may fill in; after 2½ min empty seats auto-fill.';
-      } else if (joined !== false) {
-        sub.textContent = 'Joined a human public room — waiting for more players.';
-      } else {
-        sub.textContent = 'Public room — waiting for players.';
-      }
-    }
-  } catch (e) {
-    alert(e.message || 'Could not join a public game. Try again.');
-  } finally {
-    btn?.removeAttribute('disabled');
-  }
+  if (!(await ensureUser())) return;
+  const priv = $('roomPrivate');
+  if (priv) priv.checked = privateRoom;
+  syncPrivateHint();
+  renderHostTraveler();
+  showView('create');
 }
 
 function updateBoardLinkUI(roomId) {
@@ -1372,17 +1348,9 @@ export async function initLobby(startGame, boardStats, previewBoard) {
 
   $('authSignOut')?.addEventListener('click', signOut);
   $('startBtn')?.addEventListener('click', createLobbyRoom);
-  $('quickPlayBtn')?.addEventListener('click', quickPlayPublic);
+  $('quickPlayBtn')?.addEventListener('click', () => openPlaySetup({ privateRoom: false }));
 
-  const openCreate = async ({ privateRoom = true } = {}) => {
-    if (!(await ensureUser())) return;
-    const priv = $('roomPrivate');
-    if (priv) priv.checked = privateRoom;
-    syncPrivateHint();
-    renderHostTraveler();
-    showView('create');
-  };
-  $('lobbyNewRoom')?.addEventListener('click', () => openCreate({ privateRoom: true }));
+  $('lobbyNewRoom')?.addEventListener('click', () => openPlaySetup({ privateRoom: true }));
   $('roomPrivate')?.addEventListener('change', syncPrivateHint);
   syncPrivateHint();
   $('homeAllRooms')?.addEventListener('click', () => {
