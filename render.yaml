@@ -15,7 +15,3 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
-      - key: VITE_GOOGLE_CLIENT_ID
-        sync: false
-      - key: GOOGLE_CLIENT_ID
-        sync: false
