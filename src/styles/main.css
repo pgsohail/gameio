@@ -41,6 +41,9 @@ body{
   box-shadow:0 8px 28px rgba(0,0,0,.35);
 }
 .game-brand.hidden{display:none!important}
+body.lobby-booting #lobby{opacity:0;pointer-events:none}
+body.lobby-booting #roomLobby{opacity:0;pointer-events:none}
+#lobby,#roomLobby{transition:opacity .15s ease}
 .game-brand__icon{display:block;border-radius:8px}
 .game-brand__name{
   font-size:15px;font-weight:800;letter-spacing:-.02em;color:#fff;

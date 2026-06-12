@@ -4,7 +4,7 @@ import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
   onAuthChange, restoreSession, setRemember, signOut,
 } from '../lib/auth.js';
-import { connectRoomSocket, roomLink, roomsApi } from '../lib/api.js';
+import { connectRoomSocket, getToken, roomLink, roomsApi } from '../lib/api.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 
 const TOKEN_EMOJI = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
@@ -112,6 +112,7 @@ function showView(name) {
   $('lobbyStore')?.classList.toggle('hidden', name !== 'store');
   const inLobby = ['home', 'create', 'profile', 'store'].includes(name);
   $('hubTop')?.classList.toggle('hidden', !inLobby);
+  if (inLobby) sessionStorage.setItem(LOBBY_VIEW_KEY, name);
   if (name === 'profile') renderProfilePage();
 }
 
@@ -291,6 +292,7 @@ function exitBoardLobby() {
 
 function enterBoardLobby(room) {
   currentRoomId = room.id;
+  sessionStorage.removeItem(LOBBY_VIEW_KEY);
   $('hubTop')?.classList.add('hidden');
   $('lobby')?.classList.add('hidden');
   onPreviewBoard?.(room.rules.per);
@@ -569,6 +571,7 @@ function syncPrivateHint() {
 }
 
 const ROOM_SESSION_KEY = 'ma_active_room';
+const LOBBY_VIEW_KEY = 'ma_lobby_view';
 let pendingInviteRoomId = null;
 
 export function setGameBrandVisible(on) {
@@ -631,73 +634,66 @@ async function openInviteRoom() {
   }
 }
 
-async function handleRoomDeepLink() {
-  let id = roomIdFromUrl() || sessionStorage.getItem(ROOM_SESSION_KEY);
-  if (id) id = id.toLowerCase();
-  const card = $('roomInviteCard');
-  const sub = $('roomInviteSub');
-  const enterBtn = $('roomInviteEnter');
-  if (!id) {
-    hideInviteCard();
-    pendingInviteRoomId = null;
-    return;
-  }
-  if (!roomIdFromUrl()) persistRoomInUrl(id);
-
+function showInviteError(id, message, disableEnter = false) {
   pendingInviteRoomId = id;
   const idEl = $('roomInviteId');
   if (idEl) idEl.textContent = id;
-  enterBtn?.removeAttribute('disabled');
+  const sub = $('roomInviteSub');
+  if (sub) sub.textContent = message;
+  const enterBtn = $('roomInviteEnter');
+  if (disableEnter) enterBtn?.setAttribute('disabled', '');
+  else enterBtn?.removeAttribute('disabled');
+  $('roomInviteCard')?.classList.remove('hidden');
+  $('lobby')?.classList.remove('hidden');
+  showView('home');
+}
+
+async function handleRoomDeepLink() {
+  let id = roomIdFromUrl() || sessionStorage.getItem(ROOM_SESSION_KEY);
+  if (!id) {
+    hideInviteCard();
+    pendingInviteRoomId = null;
+    return false;
+  }
+  id = id.toLowerCase();
 
   if (currentRoomId === id && !$('roomLobby')?.classList.contains('hidden')) {
-    return;
+    return true;
+  }
+
+  if (!roomIdFromUrl()) persistRoomInUrl(id);
+
+  if (!getToken()) {
+    await ensureUserForRoom();
   }
 
   if (!getToken()) {
-    if (sub) sub.textContent = 'Enter your name or sign in, then tap Enter room.';
-    card?.classList.remove('hidden');
-    $('lobby')?.classList.remove('hidden');
-    showView('home');
-    return;
+    showInviteError(id, 'Enter your name or sign in, then tap Enter room.');
+    return false;
   }
 
   try {
     const { room } = await roomsApi.get(id);
     if (room.status !== 'lobby') {
-      if (sub) sub.textContent = 'This game already started or ended.';
-      enterBtn?.setAttribute('disabled', '');
-      card?.classList.remove('hidden');
-      $('lobby')?.classList.remove('hidden');
-      showView('home');
-      return;
+      showInviteError(id, 'This game already started or ended.', true);
+      return false;
     }
-    const u = getUser();
-    const inRoom = u && room.slots.some(s => s?.userId === u.id);
-    if (inRoom) {
-      enterBoardLobby(room);
-      return;
-    }
-    const filled = room.slots.filter(Boolean).length;
-    if (sub) {
-      sub.textContent = room.private
-        ? `Private game · ${filled}/${room.maxPlayers} players waiting`
-        : `${filled}/${room.maxPlayers} players waiting`;
-    }
-    card?.classList.remove('hidden');
-    $('lobby')?.classList.remove('hidden');
-    showView('home');
+    enterBoardLobby(room);
+    return true;
   } catch {
-    if (sub) sub.textContent = 'Room not found or expired. Ask the host for a fresh link.';
-    enterBtn?.setAttribute('disabled', '');
-    card?.classList.remove('hidden');
-    $('lobby')?.classList.remove('hidden');
-    showView('home');
+    showInviteError(
+      id,
+      'Room not found or expired. The server may have restarted — ask the host for a new link.',
+      true,
+    );
+    return false;
   }
 }
 
 export async function initLobby(startGame, boardStats, previewBoard) {
   onStartGame = startGame;
   onPreviewBoard = previewBoard;
+  document.body.classList.add('lobby-booting');
 
   const rememberBox = $('rememberMe');
   if (rememberBox) rememberBox.checked = getRemember();
@@ -812,6 +808,14 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('roomInviteDismiss')?.addEventListener('click', dismissInviteCard);
 
   renderRoomList();
-  await handleRoomDeepLink();
-  if ($('roomLobby')?.classList.contains('hidden')) showView('home');
+
+  const inRoom = await handleRoomDeepLink();
+  if (!inRoom && $('roomLobby')?.classList.contains('hidden')) {
+    const saved = sessionStorage.getItem(LOBBY_VIEW_KEY);
+    const hasRoom = roomIdFromUrl() || sessionStorage.getItem(ROOM_SESSION_KEY);
+    if (!hasRoom && saved && saved !== 'home') showView(saved);
+    else showView('home');
+  }
+
+  document.body.classList.remove('lobby-booting');
 }
