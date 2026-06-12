@@ -878,18 +878,12 @@ function resetGameSession() {
   updateReturnToGameBtn();
 }
 
-export async function leaveActiveGame() {
+async function onPlayerLeftGame() {
   if (!gameStarted) return;
-  if (!confirm('Leave this game? You forfeit your properties and return to the home screen.')) return;
-
-  const { forfeitLocalHuman } = await import('../game/engine.js');
-  forfeitLocalHuman();
-
   const rid = currentRoomId;
   if (rid) {
     try { await roomsApi.leave(rid); } catch { /* room gone */ }
   }
-
   resetGameSession();
   showView('home');
   renderRoomList();
@@ -1407,7 +1401,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     showView('home');
     renderRoomList();
   });
-  $('leaveGameBtn')?.addEventListener('click', () => leaveActiveGame());
+  document.addEventListener('wt:player-left-game', onPlayerLeftGame);
   $('roomRefresh')?.addEventListener('click', () => {
     roomsPanelOpen = true;
     renderRoomList();

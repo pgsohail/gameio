@@ -1242,7 +1242,7 @@ function voluntaryBankrupt(p){
   if(!confirm('Declare bankruptcy and leave the game? Your properties return to the bank.'))return;
   forfeitLocalHuman();
 }
-export function forfeitLocalHuman(){
+function forfeitLocalHuman(){
   const p=localHuman();
   if(!p||p.dead||S.over)return false;
   if(p.debt)delete p.debt;
@@ -1251,6 +1251,11 @@ export function forfeitLocalHuman(){
   if(wasTurn&&!S.over)endTurn();
   if(isMultiplayerActive())broadcastStateNow();
   return true;
+}
+async function handleLeaveGameClick(){
+  if(!confirm('Leave this game? You forfeit your properties and return to the home screen.'))return;
+  forfeitLocalHuman();
+  document.dispatchEvent(new CustomEvent('wt:player-left-game'));
 }
 function liquidate(p,target){
   let guard=400;
@@ -2480,6 +2485,7 @@ function botTurn(){
    DOCK WIRES
 ============================================================ */
 bindDockWires();
+$('leaveGameBtn')?.addEventListener('click', handleLeaveGameClick);
 $('tradeBtn')?.addEventListener('click',openTrade);
 $('tradeCancel')?.addEventListener('click',()=>$('tradeModal')?.classList.add('hidden'));
 $('tradePropose')?.addEventListener('click',proposeTrade);
