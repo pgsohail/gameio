@@ -12,7 +12,7 @@ import {
   playBuildAnimation, playCountryMonopolyAnim, playDestroyAnimationSync, playJailArrest, playPurchaseGlow,
   playTileCashFx, playTradeSuccessAnim, positionPropDock, renderTileBuildings,
 } from '../ui/buildAnim.js';
-import { initLobby } from '../ui/lobby.js';
+import { initLobby, setGameBrandVisible } from '../ui/lobby.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 
 /* ============================================================
@@ -165,6 +165,7 @@ function startGameFromLobby({ rules, players, adminId = 0 }) {
   $('roomLobby')?.classList.add('hidden');
   document.body.classList.remove('room-lobby-mode');
   $('lobby')?.remove();
+  setGameBrandVisible(true);
   $('hud').classList.remove('hidden');
   renderAll();
   log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);

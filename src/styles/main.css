@@ -32,6 +32,21 @@ body{
 }
 
 /* ====================== WOODEN 3D TABLE SCENE ====================== */
+.game-brand{
+  position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:180;
+  display:inline-flex;align-items:center;gap:8px;padding:6px 14px 6px 8px;
+  border-radius:999px;pointer-events:none;
+  background:rgba(8,12,16,.72);border:1px solid rgba(94,234,212,.22);
+  backdrop-filter:blur(16px);
+  box-shadow:0 8px 28px rgba(0,0,0,.35);
+}
+.game-brand.hidden{display:none!important}
+.game-brand__icon{display:block;border-radius:8px}
+.game-brand__name{
+  font-size:15px;font-weight:800;letter-spacing:-.02em;color:#fff;
+}
+.game-brand__dot{color:#5EEAD4}
+
 #scene{
   position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
   padding:0 0 0 min(300px,26vw);

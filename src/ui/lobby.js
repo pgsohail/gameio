@@ -279,12 +279,14 @@ function exitBoardLobby() {
   $('lobby')?.classList.remove('hidden');
   $('hubTop')?.classList.remove('hidden');
   document.body.classList.remove('room-lobby-mode');
+  setGameBrandVisible(false);
   disconnectRoomSocket();
   currentRoomId = null;
   lastRoomRules = null;
   const url = new URL(location.href);
   url.searchParams.delete('room');
   history.replaceState(null, '', url.pathname + url.search);
+  sessionStorage.removeItem(ROOM_SESSION_KEY);
 }
 
 function enterBoardLobby(room) {
@@ -294,6 +296,9 @@ function enterBoardLobby(room) {
   onPreviewBoard?.(room.rules.per);
   $('roomLobby')?.classList.remove('hidden');
   document.body.classList.add('room-lobby-mode');
+  setGameBrandVisible(true);
+  hideInviteCard();
+  persistRoomInUrl(room.id);
   updateBoardLinkUI(room.id);
   $('boardShareBox')?.classList.toggle('hidden', !room.private);
   renderBoardLobby(room);
@@ -383,6 +388,7 @@ async function createLobbyRoom() {
 async function joinRoom(id) {
   const u = await ensureUser();
   if (!u) return;
+  id = String(id || '').trim().toLowerCase();
   try {
     const { room: existing } = await roomsApi.get(id);
     const alreadyIn = existing.slots.some(s => s?.userId === u.id);
@@ -562,20 +568,56 @@ function syncPrivateHint() {
   $('privateCreateHint')?.classList.toggle('hidden', !on);
 }
 
+const ROOM_SESSION_KEY = 'ma_active_room';
 let pendingInviteRoomId = null;
 
-function dismissInviteCard() {
+export function setGameBrandVisible(on) {
+  const el = $('gameBrand');
+  if (!el) return;
+  el.classList.toggle('hidden', !on);
+  el.setAttribute('aria-hidden', on ? 'false' : 'true');
+}
+
+function roomIdFromUrl() {
+  const raw = new URLSearchParams(location.search).get('room');
+  return raw ? raw.trim().toLowerCase() : null;
+}
+
+function persistRoomInUrl(id) {
+  if (!id) return;
+  history.replaceState(null, '', roomLink(id));
+  sessionStorage.setItem(ROOM_SESSION_KEY, id);
+}
+
+function hideInviteCard() {
   $('roomInviteCard')?.classList.add('hidden');
+}
+
+function dismissInviteCard() {
+  hideInviteCard();
   pendingInviteRoomId = null;
   const url = new URL(location.href);
   url.searchParams.delete('room');
   history.replaceState(null, '', url.pathname + url.search);
+  sessionStorage.removeItem(ROOM_SESSION_KEY);
+}
+
+async function ensureUserForRoom() {
+  const u = getUser();
+  if (u && getToken()) return u;
+  setRemember($('rememberMe')?.checked ?? true);
+  try {
+    return await continueAsGuest(guestName() || 'Guest');
+  } catch {
+    alert('Could not connect to the server. Check your internet and try again.');
+    return null;
+  }
 }
 
 async function openInviteRoom() {
-  const id = pendingInviteRoomId || new URLSearchParams(location.search).get('room');
+  const id = (pendingInviteRoomId || roomIdFromUrl() || sessionStorage.getItem(ROOM_SESSION_KEY) || '').toLowerCase();
   if (!id) return;
-  const u = await ensureUser();
+  const u = await ensureUserForRoom();
   if (!u) return;
   try {
     const { room } = await roomsApi.get(id);
@@ -583,32 +625,39 @@ async function openInviteRoom() {
       alert('This game already started or ended.');
       return;
     }
-    $('roomInviteCard')?.classList.add('hidden');
-    history.replaceState(null, '', roomLink(id));
     enterBoardLobby(room);
   } catch (e) {
-    alert(e.message || 'Room not found or expired.');
+    alert(e.message || 'Room not found. Ask the host for a new link (rooms reset if the server restarted).');
   }
 }
 
 async function handleRoomDeepLink() {
-  const id = new URLSearchParams(location.search).get('room');
+  let id = roomIdFromUrl() || sessionStorage.getItem(ROOM_SESSION_KEY);
+  if (id) id = id.toLowerCase();
   const card = $('roomInviteCard');
   const sub = $('roomInviteSub');
   const enterBtn = $('roomInviteEnter');
   if (!id) {
-    dismissInviteCard();
+    hideInviteCard();
+    pendingInviteRoomId = null;
     return;
   }
+  if (!roomIdFromUrl()) persistRoomInUrl(id);
+
   pendingInviteRoomId = id;
   const idEl = $('roomInviteId');
   if (idEl) idEl.textContent = id;
   enterBtn?.removeAttribute('disabled');
-  showView('home');
+
+  if (currentRoomId === id && !$('roomLobby')?.classList.contains('hidden')) {
+    return;
+  }
 
   if (!getToken()) {
-    if (sub) sub.textContent = 'Enter your name below, then join the room.';
+    if (sub) sub.textContent = 'Enter your name or sign in, then tap Enter room.';
     card?.classList.remove('hidden');
+    $('lobby')?.classList.remove('hidden');
+    showView('home');
     return;
   }
 
@@ -618,12 +667,13 @@ async function handleRoomDeepLink() {
       if (sub) sub.textContent = 'This game already started or ended.';
       enterBtn?.setAttribute('disabled', '');
       card?.classList.remove('hidden');
+      $('lobby')?.classList.remove('hidden');
+      showView('home');
       return;
     }
     const u = getUser();
     const inRoom = u && room.slots.some(s => s?.userId === u.id);
     if (inRoom) {
-      dismissInviteCard();
       enterBoardLobby(room);
       return;
     }
@@ -634,10 +684,14 @@ async function handleRoomDeepLink() {
         : `${filled}/${room.maxPlayers} players waiting`;
     }
     card?.classList.remove('hidden');
+    $('lobby')?.classList.remove('hidden');
+    showView('home');
   } catch {
-    if (sub) sub.textContent = 'Room not found or expired.';
+    if (sub) sub.textContent = 'Room not found or expired. Ask the host for a fresh link.';
     enterBtn?.setAttribute('disabled', '');
     card?.classList.remove('hidden');
+    $('lobby')?.classList.remove('hidden');
+    showView('home');
   }
 }
 
@@ -700,7 +754,9 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   updateSizeInfo(boardStats);
 
   $('homeNameInput')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') $('quickPlayBtn')?.click();
+    if (e.key !== 'Enter') return;
+    if (!$('roomInviteCard')?.classList.contains('hidden')) $('roomInviteEnter')?.click();
+    else $('quickPlayBtn')?.click();
   });
   const stopBubble = e => e.stopPropagation();
   $('homePlayAs')?.addEventListener('mousedown', stopBubble);
@@ -756,6 +812,6 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('roomInviteDismiss')?.addEventListener('click', dismissInviteCard);
 
   renderRoomList();
-  showView('home');
-  handleRoomDeepLink();
+  await handleRoomDeepLink();
+  if ($('roomLobby')?.classList.contains('hidden')) showView('home');
 }

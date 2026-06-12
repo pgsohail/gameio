@@ -243,7 +243,7 @@ app.get('/api/rooms', (_req, res) => {
 
 app.get('/api/rooms/:id', authMiddleware, (req, res) => {
   pruneRooms();
-  const room = rooms.get(req.params.id);
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room) return res.status(404).json({ error: 'Room not found' });
   // Invite link is the secret for private lobbies — allow fetch while still in lobby
   if (room.private && room.status !== 'lobby' && !room.slots.some(s => s?.userId === req.user.id)) {
@@ -286,7 +286,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
 
 app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   pruneRooms();
-  const room = rooms.get(req.params.id);
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.slots.some(s => s?.userId === req.user.id)) {
     return res.json({ room: roomToClient(room) });
@@ -309,7 +309,7 @@ app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
 });
 
 app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
-  const room = rooms.get(req.params.id);
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
   const { rules, maxPlayers: maxIn } = req.body || {};
@@ -330,7 +330,7 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
 });
 
 app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
-  const room = rooms.get(req.params.id);
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
 
