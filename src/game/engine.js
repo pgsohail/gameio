@@ -14,7 +14,7 @@ import {
   playBuildAnimation, playCountryMonopolyAnim, playDestroyAnimationSync, playJailArrest, playPurchaseGlow,
   playTileCashFx, playTradeSuccessAnim, positionPropDock, renderTileBuildings,
 } from '../ui/buildAnim.js';
-import { initLobby, setGameBrandVisible } from '../ui/lobby.js';
+import { initLobby, playAgainAfterGame, setGameBrandVisible } from '../ui/lobby.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import { getUser } from '../lib/auth.js';
 import {
@@ -128,9 +128,15 @@ const PLAYER_COLORS=BRIGHT_COLORS;
 const TOKEN_EMOJI=['🚂','✈️','🚢','🎩','🚗','🚀','🐪','🦁','🏎️','🛸','🎒','🌍','🛳️','🚁','🏍️','🐘'];
 const DIFF={relaxed:{buyBuf:350,buildRes:450,bidMult:0.9},classic:{buyBuf:180,buildRes:250,bidMult:1.1},shark:{buyBuf:60,buildRes:120,bidMult:1.35}};
 let tradeSeq=1;
-const DICE_SYNC_LEAD_MS = 100;
-const TURN_LIMIT_MS = 90_000;
+const DICE_SYNC_LEAD_MS = 250;
+const TURN_LIMIT_MS = 120_000;
+const TURN_ENGAGE_WARN_MS = 20_000;
+const TURN_BONUS_MS = 30_000;
+const TRADE_QUEUE_MAX = 5;
+const TRADE_EXPIRE_WARN_MS = 10_000;
 let turnTimerInterval = null;
+let turnTimeoutHandled = false;
+const tradeActivityLog = [];
 const S={players:[],turn:0,phase:'idle',dice:[1,1],doubles:0,fortune:[],treasury:[],pot:0,over:false,recentTrades:[],openTrades:[],rules:{},
   turnStartedAt:0,voteKick:{voters:[]},
   get cur(){return this.players[this.turn];}};
@@ -171,6 +177,8 @@ function exportGameState() {
       rentSurge: p.rentSurge,
       taxShield: p.taxShield,
       turnsSurvived: p.turnsSurvived || 0,
+      turnEngaged: !!p.turnEngaged,
+      turnBonusUsed: !!p.turnBonusUsed,
     })),
     tiles: TILES.map(t => ({
       owner: t.owner,
@@ -214,7 +222,7 @@ function importGameState(state) {
   if (!state || !state.players?.length) return;
   S.turn = state.turn ?? 0;
   S.phase = state.phase ?? 'idle';
-  S.dice = state.dice || [1, 1];
+  if (Date.now() >= remoteRollUntil) S.dice = state.dice || [1, 1];
   S.doubles = state.doubles ?? 0;
   S.pot = state.pot ?? 0;
   S.over = !!state.over;
@@ -234,6 +242,8 @@ function importGameState(state) {
       rentSurge: sp.rentSurge,
       taxShield: sp.taxShield,
       turnsSurvived: sp.turnsSurvived || 0,
+      turnEngaged: !!sp.turnEngaged,
+      turnBonusUsed: !!sp.turnBonusUsed,
     });
   });
   if (state.tiles) {
@@ -273,6 +283,8 @@ function importGameState(state) {
 }
 
 function onRemoteDiceRoll(msg) {
+  const uid = getUser()?.id;
+  if (msg.rollerUserId && uid && msg.rollerUserId === uid) return;
   const d1 = +msg.d1;
   const d2 = +msg.d2;
   if (d1 < 1 || d2 < 1) return;
@@ -348,6 +360,8 @@ function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }
       rentSurge: false,
       taxShield: false,
       turnsSurvived: 0,
+      turnEngaged: false,
+      turnBonusUsed: false,
     }));
     S.fortune = shuffle(FORTUNE);
     S.treasury = shuffle(TREASURY);
@@ -404,16 +418,16 @@ const DOCK_HTML=`<button class="btn" id="rollBtn">🎲 Roll Dice</button>
 function bindDockWires(){
   if(!$('rollBtn'))return;
   $('rollBtn').onclick=humanRoll;
-  $('buyBtn').onclick=()=>{buyCurrent(S.cur);afterAction(false);};
+  $('buyBtn').onclick=()=>{markTurnEngagement();buyCurrent(S.cur);afterAction(false);};
   $('auctionBtn').onclick=()=>{
     const t=TILES[S.cur.pos];
     if(t.owner==null&&t.price&&S.rules.auction){log(`<b>${S.cur.name}</b> sends ${t.name} to auction.`,S.cur);afterAction(true,t);}
   };
-  $('skipBtn').onclick=()=>{
+  $('skipBtn').onclick=()=>{markTurnEngagement();
     const t=TILES[S.cur.pos];
     log(`<b>${S.cur.name}</b> passes on ${t.name}.`,S.cur);afterAction(false);
   };
-  $('endBtn').onclick=endTurn;
+  $('endBtn').onclick=()=>{markTurnEngagement();endTurn();};
   $('settleDebtBtn').onclick=()=>{const p=localHuman();if(p)settleDebt(p);};
   $('jailPayBtn').onclick=()=>payJailFine(S.cur);
   $('jailCardBtn').onclick=()=>useJailCard(S.cur);
@@ -520,13 +534,15 @@ function msUntilDiceDone(startAt){
 function rollDiceAndBroadcast(p){
   const d1=1+rand(6), d2=1+rand(6);
   S.dice=[d1,d2];
+  const startAt=isMpGame()?Date.now()+DICE_SYNC_LEAD_MS:Date.now();
+  remoteRollUntil=startAt+DICE_ROLL_MS+320;
   if(isMpGame()){
-    const startAt=Date.now()+DICE_SYNC_LEAD_MS;
     broadcastDiceRoll(d1,d2,p.name,p.userId,startAt);
+    Dice3D.rollAt(d1,d2,startAt);
     return {total:d1+d2,startAt};
   }
   Dice3D.roll(d1,d2);
-  return {total:d1+d2,startAt:Date.now()};
+  return {total:d1+d2,startAt};
 }
 function rollDice(){return rollDiceAndBroadcast(S.cur).total;}
 
@@ -598,6 +614,44 @@ function voteKickMajority(){
   const others=alive.filter(p=>p.id!==cur.id);
   return Math.max(1,Math.ceil(others.length/2));
 }
+function markTurnEngagement(){
+  const p=S.cur;
+  if(p&&!p.dead&&!p.bot)p.turnEngaged=true;
+}
+
+function handleTurnTimeout(){
+  if(S.over||turnTimeoutHandled)return;
+  const cur=S.cur;
+  if(!cur||cur.dead||cur.bot)return;
+  const elapsed=Date.now()-(S.turnStartedAt||0);
+  if(elapsed<TURN_LIMIT_MS)return;
+  if(isMpGame()&&!isMpHost())return;
+  turnTimeoutHandled=true;
+  if(cur.turnEngaged&&!cur.turnBonusUsed){
+    cur.turnBonusUsed=true;
+    S.turnStartedAt=Date.now();
+    turnTimeoutHandled=false;
+    log(`⏱️ <b>${cur.name}</b> is playing — ${Math.ceil(TURN_BONUS_MS/1000)}s added.`,cur);
+    if(isMpGame())broadcastStateNow();
+    return;
+  }
+  if(cur.turnEngaged){
+    log(`⏱️ <b>${cur.name}</b>'s turn ended (time up).`,cur);
+    endTurn();
+    if(isMpGame())broadcastStateNow();
+    return;
+  }
+  log(`⏱️ <b>${cur.name}</b> was removed for being idle too long.`,cur);
+  if(cur.userId){
+    if(!S.voteKickedUsers)S.voteKickedUsers=[];
+    if(!S.voteKickedUsers.includes(cur.userId))S.voteKickedUsers.push(cur.userId);
+  }
+  bankrupt(cur,null);
+  S.voteKick={voters:[]};
+  if(isMpGame())broadcastStateNow();
+  if(!S.over)setTimeout(startTurn,500);
+}
+
 function checkVoteKick(){
   if(!S.voteKick?.voters?.length)return;
   const cur=S.cur;
@@ -651,14 +705,23 @@ function renderActionsCard(){
   if(val)val.textContent=`${m}:${String(s).padStart(2,'0')}`;
   if(ring)ring.style.setProperty('--pct',`${pct}`);
   if(hint){
+    hint.classList.remove('turn-timer__hint--urgent');
     if(cur?.dead)hint.textContent='';
-    else if(cur?.id===human?.id)hint.textContent='Your turn — roll or act before time runs out.';
-    else hint.textContent=`${cur?.name||'Player'}'s turn`;
+    else if(cur?.id===human?.id){
+      if(left<=TURN_ENGAGE_WARN_MS&&!cur.turnEngaged){
+        hint.textContent=`⚠️ ${secs}s left — roll or act now!`;
+        hint.classList.add('turn-timer__hint--urgent');
+      }else if(left<=TURN_ENGAGE_WARN_MS){
+        hint.textContent=`You're active — ${secs}s left on your turn.`;
+      }else hint.textContent='Your turn — roll or act before time runs out.';
+    }else if(left<=TURN_ENGAGE_WARN_MS&&!cur?.turnEngaged){
+      hint.textContent=`${cur?.name||'Player'} has ${secs}s — may be removed if idle.`;
+    }else hint.textContent=`${cur?.name||'Player'}'s turn`;
   }
   const kickBtn=$('voteKickBtn');
   const status=$('voteKickStatus');
   const canVote=cur&&!cur.dead&&!cur.bot&&human&&human.id!==cur.id;
-  const showKick=canVote&&(elapsed>=30_000||left<=15_000);
+  const showKick=canVote&&(elapsed>=60_000||left<=TURN_ENGAGE_WARN_MS);
   kickBtn?.classList.toggle('hidden',!showKick);
   if(status){
     const needed=voteKickMajority();
@@ -675,6 +738,8 @@ function ensureTurnTimer(){
   turnTimerInterval=setInterval(()=>{
     if(S.over||!$('hud')||$('hud').classList.contains('hidden'))return;
     renderActionsCard();
+    handleTurnTimeout();
+    maintainOpenTrades();
     checkVoteKick();
   },1000);
 }
@@ -768,8 +833,9 @@ function tradeTileSummary(idxs,cash){
   if(cash)parts.push(fmt(cash));
   return parts.length?parts.join(' · '):'—';
 }
-function recordTrade(from,to,offerIdx,wantIdx,offerCash,wantCash){
+function recordTrade(from,to,offerIdx,wantIdx,offerCash,wantCash,tradeId=null){
   S.recentTrades.unshift({
+    id:tradeId,
     fromName:from.name,toName:to.name,fromEmoji:from.emoji,toEmoji:to.emoji,
     fromColor:from.color,toColor:to.color,
     offerIdx:[...offerIdx],wantIdx:[...wantIdx],offerCash,wantCash,
@@ -837,12 +903,50 @@ function renderHubActivity(){
     return `<p class="hub-activity-line${i===0?' hub-activity-line--new':''}">${tradeEsc(text)}</p>`;
   }).join('');
 }
-function log(html,p){
+function openTradeFromLog(tradeId,kind='open'){
+  if(kind==='done'){
+    const i=S.recentTrades?.findIndex(t=>t.id===tradeId);
+    if(i>=0)openCompletedTradeView(i);
+    return;
+  }
+  const trade=getOpenTrade(tradeId);
+  if(trade)openTradeDetail(trade.id,trade.awaitingId===localHuman()?.id?'incoming':null);
+}
+function pushTradeActivity(entry){
+  tradeActivityLog.unshift(entry);
+  if(tradeActivityLog.length>5)tradeActivityLog.length=5;
+  renderLogTradeSection();
+}
+function renderLogTradeSection(){
+  const panel=$('logTradesPanel');
+  if(!panel)return;
+  if(!tradeActivityLog.length){
+    panel.innerHTML='<p class="log-trades-empty">No recent trade offers yet.</p>';
+    return;
+  }
+  panel.innerHTML=tradeActivityLog.map((e,i)=>`<button type="button" class="log-trade-item" data-log-trade="${i}">
+    <span class="log-trade-item__main">${formatLogHtml(e.text)}</span>
+    <span class="log-trade-item__sub">${tradeEsc(e.summary||'')}</span>
+  </button>`).join('');
+  panel.querySelectorAll('[data-log-trade]').forEach(btn=>{
+    btn.onclick=()=>{
+      const e=tradeActivityLog[+btn.dataset.logTrade];
+      if(e)openTradeFromLog(e.tradeId,e.kind);
+    };
+  });
+}
+function log(html,p,meta={}){
   const logEl=$('log');
   if(!logEl)return;
-  const d=document.createElement('div');d.className='logline';
+  const d=document.createElement('div');
+  d.className='logline'+(meta.tradeId?' logline--trade':'');
   if(p)d.style.setProperty('--lc',p.color);
   d.innerHTML=formatLogHtml(html);
+  if(meta.tradeId){
+    d.dataset.tradeId=meta.tradeId;
+    d.title='Click to view trade details';
+    d.onclick=()=>openTradeFromLog(meta.tradeId,meta.kind||'open');
+  }
   logEl.prepend(d);
   while(logEl.children.length>90)logEl.lastChild.remove();
   renderHubActivity();
@@ -1174,7 +1278,7 @@ function showGameOverModal(winner){
       }
     }catch{/* cancelled */}
   };
-  $('winPlayAgainBtn').onclick=()=>location.reload();
+  $('winPlayAgainBtn').onclick=()=>playAgainAfterGame();
   $('winModal')?.classList.remove('hidden');
   playGameOverWin();
 }
@@ -1192,10 +1296,15 @@ function startTurn(){
   if(S.over)return;
   while(S.cur.dead)S.turn=(S.turn+1)%S.players.length;
   S.doubles=0;
+  turnTimeoutHandled=false;
   S.turnStartedAt=Date.now();
   S.voteKick={voters:[]};
   const p=S.cur;
-  if(!p.dead)p.turnsSurvived=(p.turnsSurvived||0)+1;
+  if(!p.dead){
+    p.turnsSurvived=(p.turnsSurvived||0)+1;
+    p.turnEngaged=false;
+    p.turnBonusUsed=false;
+  }
   p.rentSurge=false;
   if(p.jail){S.phase='jail';msg(`${p.name} is in prison (attempt ${p.jailTurns+1} of 3).`);}
   else{S.phase='roll';msg(turnMsg(p));}
@@ -1209,6 +1318,7 @@ function startTurn(){
 function endTurn(){
   if(S.over)return;
   if(isMpGame()&&!isMyTurn())return;
+  markTurnEngagement();
   S.phase='idle';
   S.turn=(S.turn+1)%S.players.length;
   if(isMpGame())broadcastStateNow();
@@ -1217,6 +1327,7 @@ function endTurn(){
 
 function humanRoll(){
   if(!assertMyTurn())return;
+  markTurnEngagement();
   if(S.phase==='jail'){jailRoll(S.cur);return;}
   if(S.phase==='roll')doRoll(S.cur);
 }
@@ -1787,11 +1898,55 @@ function tradeStatusLabel(t){
   }
   return t.status;
 }
+function tradeCashBarHTML(label,amount,wallet){
+  const pct=wallet>0?Math.min(100,Math.round((amount/wallet)*100)):0;
+  return `<div class="trade-cash-bar">
+    <div class="trade-cash-bar__row"><span>${tradeEsc(label)}</span><strong>${fmt(amount)}</strong></div>
+    <div class="trade-cash-bar__track"><span style="width:${pct}%"></span></div>
+  </div>`;
+}
+function maintainOpenTrades(){
+  if(isMpGame()&&!isMpHost())return;
+  const open=S.openTrades||[];
+  if(open.length<=TRADE_QUEUE_MAX)return;
+  const now=Date.now();
+  let changed=false;
+  for(const t of open){
+    if(t.status!=='pending')continue;
+    const awaiting=S.players[t.awaitingId];
+    if(!awaiting||awaiting.bot)continue;
+    if(!t.createdAt)t.createdAt=now;
+    if(!t.expireWarnAt){
+      t.expireWarnAt=now;
+      t.expireAt=now+TRADE_EXPIRE_WARN_MS;
+      const summary=`${tradeTileSummary(t.offerIdx,t.offerCash)} → ${tradeTileSummary(t.wantIdx,t.wantCash)}`;
+      log(`⏳ Too many open trades — <b>${S.players[t.fromId]?.name}</b>'s offer to <b>${awaiting.name}</b> closes in 10s unless answered.`,S.players[t.fromId]);
+      if(awaiting.id===localHuman()?.id)msg('Accept or reject the trade offer — it closes in 10 seconds.');
+      pushTradeActivity({tradeId:t.id,kind:'open',text:`${S.players[t.fromId]?.name} → ${awaiting.name}`,summary});
+      changed=true;
+    }else if(t.expireAt&&now>=t.expireAt){
+      log(`⌛ Trade offer from <b>${S.players[t.fromId]?.name}</b> to <b>${awaiting.name}</b> expired.`,S.players[t.fromId]);
+      removeOpenTrade(t.id);
+      changed=true;
+    }
+  }
+  if(changed&&isMultiplayerActive())broadcastStateNow();
+}
+function cancelOpenTrade(id){
+  const trade=getOpenTrade(id);
+  const human=localHuman();
+  if(!trade||!human||trade.fromId!==human.id)return;
+  removeOpenTrade(id);
+  log(`<b>${human.name}</b> cancelled their trade offer.`,human);
+  if(isMultiplayerActive())broadcastStateNow();
+  closeTradeReview();
+  renderAll();
+}
 function addOpenTrade(from,to,offerIdx,wantIdx,offerCash,wantCash){
   const trade={
     id:tradeSeq++,fromId:from.id,toId:to.id,
     offerIdx:[...offerIdx],wantIdx:[...wantIdx],offerCash,wantCash,
-    status:'pending',awaitingId:to.id,round:1,
+    status:'pending',awaitingId:to.id,round:1,createdAt:Date.now(),
     history:[{round:1,by:from.id,offerIdx:[...offerIdx],wantIdx:[...wantIdx],offerCash,wantCash,text:`${from.name} proposed`}],
   };
   S.openTrades.unshift(trade);
@@ -1822,8 +1977,10 @@ function finalizeOpenTrade(trade){
   const toGroups=new Set(ownedGroupIds(to));
   const offerIdx=[...trade.offerIdx],wantIdx=[...trade.wantIdx];
   if(!executeTrade(from,to,offerIdx,wantIdx,trade.offerCash,trade.wantCash))return false;
-  recordTrade(from,to,offerIdx,wantIdx,trade.offerCash,trade.wantCash);
-  log(`🤝 <b>${from.name}</b> and <b>${to.name}</b> complete a trade.`,from);
+  recordTrade(from,to,offerIdx,wantIdx,trade.offerCash,trade.wantCash,trade.id);
+  const summary=`${tradeTileSummary(offerIdx,trade.offerCash)} ↔ ${tradeTileSummary(wantIdx,trade.wantCash)}`;
+  log(`🤝 <b>${from.name}</b> and <b>${to.name}</b> complete a trade.`,from,{tradeId:trade.id,kind:'done'});
+  pushTradeActivity({tradeId:trade.id,kind:'done',text:`${from.name} ↔ ${to.name} (done)`,summary});
   removeOpenTrade(trade.id);
   renderAll();
   playTradeSuccess();
@@ -1845,20 +2002,27 @@ function renderOpenTrades(){
     const gave=tradeTileSummary(t.offerIdx,t.offerCash);
     const wants=tradeTileSummary(t.wantIdx,t.wantCash);
     const st=tradeStatusLabel(t);
-    return `<button type="button" class="trade-feed-item trade-feed-item--${t.status}" data-id="${t.id}">
-      <span class="trade-feed-item__row">
-        <span class="trade-feed-item__avatars">
-          <span class="trade-feed-av p-av p-av--0" style="--pc:${from.color}">${from.emoji}</span>
-          <span class="trade-feed-av p-av p-av--1" style="--pc:${to.color}">${to.emoji}</span>
+    const canCancel=localHuman()?.id===from.id&&t.status==='pending';
+    return `<div class="trade-feed-item-wrap">
+      <button type="button" class="trade-feed-item trade-feed-item--${t.status}" data-id="${t.id}">
+        <span class="trade-feed-item__row">
+          <span class="trade-feed-item__avatars">
+            <span class="trade-feed-av p-av p-av--0" style="--pc:${from.color}">${from.emoji}</span>
+            <span class="trade-feed-av p-av p-av--1" style="--pc:${to.color}">${to.emoji}</span>
+          </span>
+          <span class="trade-feed-item__main">${tradeEsc(from.name)} → ${tradeEsc(to.name)}</span>
+          <span class="trade-feed-item__badge">${tradeEsc(st)}</span>
         </span>
-        <span class="trade-feed-item__main">${tradeEsc(from.name)} → ${tradeEsc(to.name)}</span>
-        <span class="trade-feed-item__badge">${tradeEsc(st)}</span>
-      </span>
-      <span class="trade-feed-item__sub"><b>Gives:</b> ${tradeEsc(gave)} · <b>Wants:</b> ${tradeEsc(wants)}</span>
-    </button>`;
+        <span class="trade-feed-item__sub"><b>Gives:</b> ${tradeEsc(gave)} · <b>Wants:</b> ${tradeEsc(wants)}</span>
+      </button>
+      ${canCancel?`<button type="button" class="trade-feed-cancel" data-cancel="${t.id}" title="Cancel offer">✕</button>`:''}
+    </div>`;
   }).join('');
   list.querySelectorAll('.trade-feed-item[data-id]').forEach(btn=>{
     btn.onclick=()=>openTradeDetail(+btn.dataset.id);
+  });
+  list.querySelectorAll('[data-cancel]').forEach(btn=>{
+    btn.onclick=(e)=>{e.stopPropagation();cancelOpenTrade(+btn.dataset.cancel);};
   });
 }
 function getTradePartner(){return tradePartnerId!=null?S.players[tradePartnerId]:null;}
@@ -1946,6 +2110,8 @@ function openTrade(){
   bindTradeSliders();
   renderTradePlayerPick();
   renderTradeLists();
+  const head=$('tradeModal')?.querySelector('.trade-head h2');
+  if(head)head.textContent=tradeCounterId?'Counter offer':'Create trade';
   $('tradeModal').classList.remove('hidden');
 }
 function loadTradeForCounter(trade,human){
@@ -2063,8 +2229,10 @@ function renderTradeReview(trade,mode){
   const hist=$('tradeReviewHistory');
   if(parties)parties.innerHTML=
     tradeReviewPaneHTML(from.name,from.emoji,from.color,'Gives',trade.offerIdx,trade.offerCash)+
+    tradeCashBarHTML(`${from.name} offers cash`,trade.offerCash,from.cash)+
     '<div class="trade-review-divider" aria-hidden="true">⇄</div>'+
-    tradeReviewPaneHTML(to.name,to.emoji,to.color,'Gets',trade.wantIdx,trade.wantCash);
+    tradeReviewPaneHTML(to.name,to.emoji,to.color,'Gets',trade.wantIdx,trade.wantCash)+
+    tradeCashBarHTML(`${to.name} offers cash`,trade.wantCash,to.cash);
   if(hist){
     hist.innerHTML=trade.history.map(h=>{
       const by=S.players[h.by];
@@ -2103,6 +2271,12 @@ function renderTradeReview(trade,mode){
     $('tradeAccept').classList.remove('hidden');
     $('tradeReject').classList.remove('hidden');
     $('tradeNegotiate').classList.toggle('hidden',!canNegotiate);
+    const delBtn=$('tradeDelete');
+    if(delBtn){
+      const canDel=human&&human.id===trade.fromId&&trade.status==='pending';
+      delBtn.classList.toggle('hidden',!canDel);
+      delBtn.onclick=()=>cancelOpenTrade(trade.id);
+    }
   }
   if(solo&&!solo.classList.contains('hidden')){
     $('tradeReviewNegotiate').classList.toggle('hidden',!canNegotiate);
@@ -2133,6 +2307,9 @@ function negotiateTrade(tradeId){
   bindTradeSliders();
   renderTradePlayerPick();
   renderTradeLists();
+  syncTradeSliders();
+  const head=$('tradeModal')?.querySelector('.trade-head h2');
+  if(head)head.textContent='Counter offer';
   $('tradeModal').classList.remove('hidden');
 }
 function scheduleBotTradeResponse(trade){
@@ -2177,12 +2354,17 @@ function proposeTrade(){
       counterOpenTrade(existing,from,offerIdx,wantIdx,offerCash,wantCash);
       trade=existing;
       to=S.players[trade.toId];
-      log(`🔄 <b>${from.name}</b> sends a counter-offer to <b>${to.name}</b>.`,from);
+      const summary=`${tradeTileSummary(offerIdx,offerCash)} → ${tradeTileSummary(wantIdx,wantCash)}`;
+      log(`🔄 <b>${from.name}</b> sends a counter-offer to <b>${to.name}</b>.`,from,{tradeId:trade.id,kind:'open'});
+      pushTradeActivity({tradeId:trade.id,kind:'open',text:`${from.name} countered ${to.name}`,summary});
     }else trade=addOpenTrade(from,to,offerIdx,wantIdx,offerCash,wantCash);
   }else{
     trade=addOpenTrade(from,to,offerIdx,wantIdx,offerCash,wantCash);
-    log(`📨 <b>${from.name}</b> sends a trade offer to <b>${to.name}</b>.`,from);
+    const summary=`${tradeTileSummary(offerIdx,offerCash)} → ${tradeTileSummary(wantIdx,wantCash)}`;
+    log(`📨 <b>${from.name}</b> sends a trade offer to <b>${to.name}</b>.`,from,{tradeId:trade.id,kind:'open'});
+    pushTradeActivity({tradeId:trade.id,kind:'open',text:`${from.name} → ${to.name}`,summary});
   }
+  markTurnEngagement();
   renderAll();
   if(to.bot)scheduleBotTradeResponse(trade);
   else openTradeDetail(trade.id,'incoming');

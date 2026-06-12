@@ -51,6 +51,7 @@ export const roomsApi = {
   leave: id => api(`/api/rooms/${id}/leave`, { method: 'POST' }),
   markAbsent: id => api(`/api/rooms/${id}/absent`, { method: 'POST' }),
   rejoin: id => api(`/api/rooms/${id}/rejoin`, { method: 'POST' }),
+  rematch: id => api(`/api/rooms/${id}/rematch`, { method: 'POST' }),
   update: (id, body) => api(`/api/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };
 

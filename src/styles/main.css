@@ -1655,6 +1655,46 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .turn-timer__hint{
   font-size:11px;color:rgba(255,255,255,.5);text-align:center;line-height:1.4;margin:0 0 12px;
 }
+.turn-timer__hint--urgent{color:#fbbf24;font-weight:700}
+.log-trades-panel{
+  padding:10px 12px 8px;border-bottom:1px solid rgba(255,255,255,.08);
+  background:rgba(0,0,0,.18);
+}
+.log-trades-panel__head{
+  font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(94,234,212,.75);margin-bottom:6px;
+}
+.log-trades-panel__list{display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto}
+.log-trades-empty{font-size:10px;color:rgba(255,255,255,.35);margin:0}
+.log-trade-item{
+  display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;
+  padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.04);cursor:pointer;text-align:left;font-family:inherit;
+}
+.log-trade-item:hover{background:rgba(20,184,166,.12);border-color:rgba(94,234,212,.25)}
+.log-trade-item__main{font-size:11px;font-weight:700;color:#fff;line-height:1.3}
+.log-trade-item__sub{font-size:10px;color:rgba(255,255,255,.45)}
+.logline--trade{cursor:pointer}
+.logline--trade:hover{filter:brightness(1.08)}
+.trade-cash-bar{padding:0 4px 8px}
+.trade-cash-bar__row{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:10px;font-weight:700;color:rgba(255,255,255,.55);margin-bottom:4px;
+}
+.trade-cash-bar__row strong{font-size:13px;color:var(--gold-bright,#FCD34D)}
+.trade-cash-bar__track{
+  height:6px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden;
+}
+.trade-cash-bar__track span{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,#14B8A6,#5EEAD4);
+}
+.trade-feed-item-wrap{display:flex;align-items:stretch;gap:4px}
+.trade-feed-cancel{
+  flex-shrink:0;width:28px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+  background:rgba(220,60,60,.15);color:#fca5a5;font-size:12px;cursor:pointer;
+}
+.trade-feed-cancel:hover{background:rgba(220,60,60,.28)}
 .player-actions-btns{display:flex;flex-direction:column;gap:8px}
 .vote-kick-btn,.action-bankrupt-btn{
   display:flex;align-items:center;justify-content:center;gap:8px;width:100%;

@@ -1,6 +1,6 @@
 import './styles/main.css';
 import './game/engine.js';
 
-const BUILD = '2026-06-13-mp11';
+const BUILD = '2026-06-13-mp12';
 const tag = document.getElementById('appBuildTag');
 if (tag) tag.textContent = `Build ${BUILD}`;

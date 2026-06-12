@@ -286,7 +286,9 @@ function broadcastDiceRoll(roomId, msg) {
   const subs = roomSubs.get(roomId);
   if (!subs) return;
   const seq = msg.seq || Date.now();
-  const startAt = Math.max(Date.now() + 60, +(msg.startAt || 0) || Date.now() + 100);
+  const now = Date.now();
+  const clientStart = +(msg.startAt || 0);
+  const startAt = clientStart > now + 40 ? clientStart : now + 120;
   const payload = JSON.stringify({
     type: 'dice_roll',
     roomId,
@@ -548,6 +550,40 @@ app.post('/api/rooms/:id/absent', authMiddleware, (req, res) => {
   markAbsent(room, req.user.id);
   broadcastRoom(room.id);
   res.json({ ok: true, room: roomToClient(room, req.user.id) });
+});
+
+app.post('/api/rooms/:id/rematch', authMiddleware, (req, res) => {
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (!wasRoomMember(room, req.user.id)) {
+    return res.status(403).json({ error: 'Not in this room' });
+  }
+  if (room.status === 'playing' && room.players?.length) {
+    const slots = Array.from({ length: room.maxPlayers }, () => null);
+    for (const p of room.players) {
+      if (p.bot) continue;
+      const idx = slots.findIndex(s => !s);
+      if (idx < 0) break;
+      slots[idx] = {
+        userId: p.userId,
+        name: p.name,
+        emoji: p.emoji,
+        color: p.color,
+        bot: false,
+      };
+    }
+    room.slots = slots;
+    if (room.rules?.allowBots) syncRoomBots(room);
+  }
+  room.status = 'lobby';
+  delete room.gameState;
+  delete room.players;
+  delete room.absent;
+  delete room.kicked;
+  room.stateSeq = 0;
+  room.updatedAt = Date.now();
+  broadcastRoom(room.id);
+  res.json({ room: roomToClient(room, req.user.id) });
 });
 
 app.post('/api/rooms/:id/rejoin', authMiddleware, (req, res) => {

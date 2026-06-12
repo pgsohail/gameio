@@ -792,6 +792,46 @@ let pendingInviteRoomId = null;
 let rejoinTimerInterval = null;
 let pendingRejoinRoom = null;
 
+export async function playAgainAfterGame() {
+  $('winModal')?.classList.add('hidden');
+  $('hud')?.classList.add('hidden');
+  $('scene')?.classList.add('hidden');
+  setGameBrandVisible(false);
+  gameStarted = false;
+  gamePausedAway = false;
+  updateReturnToGameBtn();
+  detachMultiplayer();
+
+  const rid = (currentRoomId || sessionStorage.getItem(ROOM_SESSION_KEY) || '').toLowerCase();
+  if (!rid) {
+    $('lobby')?.classList.remove('hidden');
+    $('hubTop')?.classList.remove('hidden');
+    showView('home');
+    return;
+  }
+
+  try {
+    const { room } = await roomsApi.rematch(rid);
+    currentRoomId = room.id;
+    const u = getUser();
+    const inRoom = room.slots?.some(s => s?.userId === u?.id);
+    const others = room.slots?.filter(s => s && s.userId !== u?.id).length || 0;
+    if (inRoom) {
+      enterBoardLobby(room);
+      return;
+    }
+  } catch { /* room gone */ }
+
+  currentRoomId = null;
+  sessionStorage.removeItem(ROOM_SESSION_KEY);
+  const url = new URL(location.href);
+  url.searchParams.delete('room');
+  history.replaceState(null, '', url.pathname + url.search);
+  $('lobby')?.classList.remove('hidden');
+  $('hubTop')?.classList.remove('hidden');
+  showView('home');
+}
+
 export function setGameBrandVisible(on) {
   const el = $('gameBrand');
   if (!el) return;

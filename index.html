@@ -453,7 +453,7 @@
         </div>
         <div class="turn-timer" id="turnTimer">
           <span class="turn-timer__ring" id="turnTimerRing"></span>
-          <span class="turn-timer__value" id="turnTimerVal">1:30</span>
+          <span class="turn-timer__value" id="turnTimerVal">2:00</span>
         </div>
         <p class="turn-timer__hint" id="turnTimerHint">Waiting for roll…</p>
         <div class="player-actions-btns">
@@ -490,6 +490,10 @@
         <h3>Activity Log</h3>
       </div>
       <button type="button" class="log-drawer-toggle" id="logBtn">Hide</button>
+    </div>
+    <div class="log-trades-panel">
+      <div class="log-trades-panel__head">Recent trades</div>
+      <div id="logTradesPanel" class="log-trades-panel__list"></div>
     </div>
     <div id="log" class="log-scroll"></div>
   </div>
@@ -646,6 +650,7 @@
     </div>
     <p class="trade-review-note" id="tradeReviewNote"></p>
     <div class="trade-review-actions" id="tradeReviewActions">
+      <button class="btn ghost hidden" id="tradeDelete" type="button">Delete</button>
       <button class="btn ghost" id="tradeReject" type="button">Reject</button>
       <button class="btn ghost" id="tradeNegotiate" type="button">Negotiate</button>
       <button class="btn vio" id="tradeAccept" type="button">Accept</button>
