@@ -1,7 +1,8 @@
-/** Real-time multiplayer: WebSocket game-state relay between clients. */
+/** Real-time multiplayer: game mode flag + WebSocket state relay. */
 
 let roomId = null;
 let socket = null;
+let mpGame = false;
 let applyingRemote = false;
 let broadcastTimer = null;
 let lastRemoteSeq = 0;
@@ -16,12 +17,22 @@ export function registerStateImporter(importer) {
   importStateFn = importer;
 }
 
+export function isMpGame() {
+  return mpGame;
+}
+
 export function isMultiplayerActive() {
-  return !!roomId;
+  return mpGame && !!roomId;
 }
 
 export function isApplyingRemote() {
   return applyingRemote;
+}
+
+export function enableMultiplayer(ws, id) {
+  mpGame = true;
+  socket = ws;
+  roomId = id;
 }
 
 export function attachMultiplayer(ws, id) {
@@ -30,6 +41,7 @@ export function attachMultiplayer(ws, id) {
 }
 
 export function detachMultiplayer() {
+  mpGame = false;
   roomId = null;
   socket = null;
   clearTimeout(broadcastTimer);
@@ -53,18 +65,22 @@ export function handleSocketMessage(msg, myUserId) {
   return true;
 }
 
+export function broadcastStateNow() {
+  if (applyingRemote || !mpGame || !exportStateFn || !roomId || !socket
+    || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({
+    type: 'game_state',
+    roomId,
+    state: exportStateFn(),
+    seq: Date.now(),
+  }));
+}
+
 export function queueStateBroadcast() {
-  if (applyingRemote || !exportStateFn || !roomId || !socket || socket.readyState !== WebSocket.OPEN) return;
+  if (applyingRemote || !mpGame || !exportStateFn || !roomId || !socket
+    || socket.readyState !== WebSocket.OPEN) return;
   clearTimeout(broadcastTimer);
-  broadcastTimer = setTimeout(() => {
-    if (!socket || socket.readyState !== WebSocket.OPEN || !exportStateFn) return;
-    socket.send(JSON.stringify({
-      type: 'game_state',
-      roomId,
-      state: exportStateFn(),
-      seq: Date.now(),
-    }));
-  }, 60);
+  broadcastTimer = setTimeout(broadcastStateNow, 40);
 }
 
 export function rebuildDeck(source, keys) {

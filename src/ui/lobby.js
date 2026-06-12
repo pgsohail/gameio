@@ -6,7 +6,7 @@ import {
 } from '../lib/auth.js';
 import { connectRoomSocket, getToken, roomLink, roomsApi, subscribeWhenOpen } from '../lib/api.js';
 import {
-  attachMultiplayer, detachMultiplayer, handleSocketMessage,
+  enableMultiplayer, detachMultiplayer, handleSocketMessage,
 } from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 
@@ -298,8 +298,11 @@ function startFromPayload(payload) {
   if (rid) currentRoomId = rid;
   try {
     onStartGame({ rules: payload.rules, players, adminId, multiplayer: isMp });
-    if (isMp && roomSocket && rid) {
-      attachMultiplayer(roomSocket, rid);
+    if (isMp && rid) {
+      if (!roomSocket || roomSocket.readyState === WebSocket.CLOSED) {
+        subscribeRoom(rid);
+      }
+      enableMultiplayer(roomSocket, rid);
       subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
     } else {
       disconnectRoomSocket();
@@ -324,9 +327,14 @@ function subscribeRoom(roomId) {
   roomSocket = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
   subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
   roomSocket?.addEventListener('close', () => {
-    if (currentRoomId === rid && !gameStarted) {
-      wsReconnectTimer = setTimeout(() => subscribeRoom(rid), 1200);
-    }
+    if (currentRoomId !== rid) return;
+    wsReconnectTimer = setTimeout(() => {
+      if (currentRoomId !== rid) return;
+      const ws = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
+      roomSocket = ws;
+      subscribeWhenOpen(ws, { type: 'subscribe', roomId: rid });
+      if (gameStarted) enableMultiplayer(ws, rid);
+    }, 1000);
   });
   startLobbyPoll(rid);
 }

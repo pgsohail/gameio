@@ -421,11 +421,11 @@ app.get('/api/health', (_req, res) => {
 
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath, {
-  maxAge: IS_PROD ? '7d' : 0,
+  maxAge: IS_PROD ? '1h' : 0,
   etag: true,
   setHeaders(res, filePath) {
-    if (filePath.endsWith('index.html')) {
-      res.setHeader('Cache-Control', 'no-cache');
+    if (filePath.endsWith('index.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     }
   },
 }));

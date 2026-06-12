@@ -2546,6 +2546,11 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .create-layout{
   display:grid;grid-template-columns:1.1fr minmax(268px,310px);gap:18px;align-items:start;width:100%;
 }
+.create-layout--stack{
+  grid-template-columns:1fr;max-width:min(100%,520px);margin:0 auto;
+}
+.create-adv-card--inline{margin-top:14px}
+.create-version{font-size:9px;color:rgba(255,255,255,.22);margin:-10px 0 12px;letter-spacing:.04em}
 .create-main{display:flex;flex-direction:column;gap:0}
 .create-adv-card{
   padding:14px 13px;border-radius:16px;
@@ -3218,6 +3223,7 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   .store-cats{flex-direction:row;flex-wrap:wrap}
   .profile-hero{flex-direction:column;text-align:center}
   .create-layout{grid-template-columns:1fr}
+  .create-layout--stack{max-width:100%}
   .create-adv-card{position:static}
   .room-lobby{grid-template-columns:1fr;grid-template-rows:auto 1fr auto;padding:10px;overflow-y:auto}
   .room-lobby__side--left{order:1}

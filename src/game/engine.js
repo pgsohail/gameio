@@ -16,8 +16,8 @@ import { initLobby, setGameBrandVisible } from '../ui/lobby.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import { getUser } from '../lib/auth.js';
 import {
-  isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
-  registerStateSync, registerStateImporter, rebuildDeck,
+  isMpGame, isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
+  broadcastStateNow, registerStateSync, registerStateImporter, rebuildDeck,
 } from '../lib/multiplayer.js';
 
 /* ============================================================
@@ -212,20 +212,40 @@ function importGameState(state) {
   if (state.treasuryKeys) S.treasury = rebuildDeck(TREASURY, state.treasuryKeys);
   Dice3D.setValues(S.dice[0], S.dice[1], false);
   renderAll();
+  postSyncTurn();
+}
+
+function postSyncTurn() {
+  if (!isMpGame() || isApplyingRemote()) return;
+  const p = S.cur;
+  if (!p) return;
+  if (p.bot && isMpHost()) setTimeout(botTurn, 900);
 }
 
 registerStateSync(exportGameState);
 registerStateImporter(importGameState);
 
 function isMpHost() {
-  if (!isMultiplayerActive()) return true;
+  if (!isMpGame()) return true;
   const uid = getUser()?.id;
   return S.players.some(p => p.isAdmin && p.userId === uid);
 }
 
-function startGameFromLobby({ rules, players, adminId = 0 }) {
+function isMyTurn() {
+  const me = localHuman();
+  const cur = S.cur;
+  return !!(me && cur && cur.userId === me.userId && !cur.bot);
+}
+
+function assertMyTurn() {
+  if (!isMpGame()) return true;
+  return isMyTurn();
+}
+
+function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }) {
   try {
     const per = rules.per;
+    S.multiplayer = !!multiplayer;
     S.rules = {
       ...rules,
       title: 'Buildup.io',
@@ -522,9 +542,9 @@ function renderDock(){
   const me=localHuman();
   const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle('hidden',!on);};
   const jailing=ph==='jail';
-  const humanTurn=!!me&&p.id===me.id&&!S.over;
-  if(!humanTurn&&!p.bot&&!S.over&&me){
-    msg(`${p.name}'s turn — waiting…`);
+  const humanTurn=isMyTurn()&&!S.over;
+  if(isMpGame()&&!humanTurn&&!p.bot&&!S.over){
+    msg(`Waiting for ${p.name}…`);
   }
   show('rollBtn',humanTurn&&(ph==='roll'||jailing));
   if($('rollBtn'))$('rollBtn').textContent=jailing?'🎲 Roll for doubles':'🎲 Roll Dice';
@@ -948,17 +968,28 @@ function startTurn(){
   if(p.jail){S.phase='jail';msg(`${p.name} is in prison (attempt ${p.jailTurns+1} of 3).`);}
   else{S.phase='roll';msg(turnMsg(p));}
   renderAll();
+  if(isMpGame()){
+    if(p.bot&&isMpHost())setTimeout(botTurn,900);
+    return;
+  }
   if(p.bot)setTimeout(botTurn,900);
 }
-function endTurn(){if(S.over)return;S.phase='idle';S.turn=(S.turn+1)%S.players.length;setTimeout(startTurn,420);}
+function endTurn(){
+  if(S.over)return;
+  if(isMpGame()&&!isMyTurn())return;
+  S.phase='idle';
+  S.turn=(S.turn+1)%S.players.length;
+  if(isMpGame())broadcastStateNow();
+  setTimeout(startTurn,420);
+}
 
 function humanRoll(){
-  const me=localHuman();
-  if(!me||S.cur.id!==me.id)return;
+  if(!assertMyTurn())return;
   if(S.phase==='jail'){jailRoll(S.cur);return;}
   if(S.phase==='roll')doRoll(S.cur);
 }
 function doRoll(p){
+  if(isMpGame()&&!isMyTurn())return;
   S.phase='moving';renderDock();
   const total=rollDice();
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
@@ -1027,6 +1058,7 @@ function resolveTile(p,opts={}){
     default:{
       if(t.owner==null){
         if(p.bot){
+          if(isMpGame()&&!isMpHost()){finishMovePhase(p,again);break;}
           if(botWantsBuy(p,t)){buyCurrent(p);finishMovePhase(p,again);}
           else if(S.rules.auction){log(`<b>${p.name}</b> sends ${t.name} to auction.`,p);startAuction(t,()=>finishMovePhase(p,again));}
           else{log(`<b>${p.name}</b> passes on ${t.name}.`,p);finishMovePhase(p,again);}
@@ -1057,6 +1089,7 @@ function computeRent(t,opts={}){
   return r;
 }
 function buyCurrent(p){
+  if(isMpGame()&&!isMyTurn())return false;
   const t=TILES[p.pos];
   if(t.owner!=null||!t.price||p.cash<t.price)return false;
   const groupsBefore=new Set(ownedGroupIds(p));
@@ -1072,12 +1105,17 @@ function finishMovePhase(p,rollAgain){
   if(S.over)return;
   if(p.dead){endTurn();return;}
   renderAll();if(checkWin())return;
+  const runBots=!isMpGame()||isMpHost();
   if(rollAgain&&!p.jail){
     S.phase='roll';renderDock();
-    if(p.bot)setTimeout(()=>doRoll(p),900);else msg('Doubles! Roll again.');
+    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),900);}
+    else msg('Doubles! Roll again.');
+  }else if(p.bot){
+    if(runBots)setTimeout(()=>{botBuild(p);endTurn();},700);
   }else{
-    if(p.bot)setTimeout(()=>{botBuild(p);endTurn();},700);
-    else{S.phase='end';msg('Tap your properties to upgrade — or end your turn.');renderDock();}
+    S.phase='end';
+    msg(isMyTurn()?'Tap your properties to upgrade — or end your turn.':`Waiting for ${p.name}…`);
+    renderDock();
   }
 }
 
@@ -1892,7 +1930,7 @@ function openManage(p){
 ============================================================ */
 function botTurn(){
   const p=S.cur;if(S.over||p.dead||!p.bot)return;
-  if(isMultiplayerActive()&&!isMpHost())return;
+  if(isMpGame()&&!isMpHost())return;
   if(p.jail){
     if(p.goojf>0){useJailCard(p);return;}
     if(p.cash>=400){payJailFine(p);return;}
@@ -1937,6 +1975,7 @@ $('tradeReviewModal').onclick=e=>{if(e.target.id==='tradeReviewModal')closeTrade
 $('propModal').onclick=e=>{if(e.target.id==='propModal')closePropDetail();};
 $('manageClose')?.addEventListener('click',()=>$('manageModal')?.classList.add('hidden'));
 function afterAction(toAuction,tile){
+  if(isMpGame()&&!isMyTurn())return;
   const again=S.pendingDouble;S.pendingDouble=false;
   if(toAuction)startAuction(tile,()=>finishMovePhase(S.cur,again));
   else finishMovePhase(S.cur,again);

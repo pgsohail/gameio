@@ -147,9 +147,10 @@
     <!-- Create room — split: main + advanced card -->
     <section id="lobbyCreate" class="lobby-create hidden">
       <button type="button" class="lobby-create__back" id="lobbyBackCreate">← Back</button>
-      <div class="create-layout">
+      <div class="create-layout create-layout--stack">
         <div class="create-main">
           <h2 class="lobby-create__title">New game</h2>
+          <p class="create-version" id="appBuildTag" aria-hidden="true"></p>
           <div id="hostTraveler" class="traveler-card"></div>
           <div class="setup-stack">
             <div class="setup-row">
@@ -220,33 +221,33 @@
               <p class="setup-private__note" id="privateCreateHint">You'll wait on the board. Copy the invite link from the left panel.</p>
             </div>
           </div>
+          <section class="create-adv-card create-adv-card--inline">
+            <h3 class="create-adv-card__title">Advanced rules</h3>
+            <div class="adv-toggles adv-toggles--create">
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>×2 sets</b><small>Double rent on a complete color group</small></span><input type="checkbox" id="ruleDouble" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Vacation pot</b><small>Taxes and fees go to a shared pot</small></span><input type="checkbox" id="ruleVacation" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Auctions</b><small>Unsold tiles go to open bid</small></span><input type="checkbox" id="ruleAuction" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>No jail rent</b><small>No rent while you sit in jail</small></span><input type="checkbox" id="ruleNoJailRent" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Mortgage</b><small>Borrow cash against owned tiles</small></span><input type="checkbox" id="ruleMortgage" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Doubles</b><small>Extra roll on doubles, 3 sends you to jail</small></span><input type="checkbox" id="ruleDoubles" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint glass-toggle--gold"><span class="glass-toggle__lbl"><b>Power cards</b><small>Rare one-shot bonus cards</small></span><input type="checkbox" id="rulePowerCards"><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint glass-toggle--mint"><span class="glass-toggle__lbl"><b>Bots</b><small>AI opponents in solo quick play</small></span><input type="checkbox" id="ruleAllowBots" checked><i class="glass-toggle__sw"></i></label>
+              <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Random player order</b><small>Shuffle who goes first when the game launches</small></span><input type="checkbox" id="ruleRandomOrder"><i class="glass-toggle__sw"></i></label>
+            </div>
+            <div class="power-preview hidden" id="powerPreview">
+              <span class="power-preview__chip">💥 Demolition</span>
+              <span class="power-preview__chip">🌀 Summon</span>
+              <span class="power-preview__chip">⚡ Rent surge</span>
+              <span class="power-preview__chip">✨ Free build</span>
+              <span class="power-preview__chip">🛡️ Shield</span>
+              <span class="power-preview__chip">🏖️ Pot pull</span>
+            </div>
+          </section>
           <button type="button" class="home-play lobby-create__go" id="startBtn">
             <span class="home-play__label">Open lobby</span>
             <span class="home-play__chev" aria-hidden="true">››</span>
           </button>
         </div>
-        <aside class="create-adv-card">
-          <h3 class="create-adv-card__title">Advanced rules</h3>
-          <div class="adv-toggles adv-toggles--create">
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>×2 sets</b><small>Double rent on a complete color group</small></span><input type="checkbox" id="ruleDouble" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Vacation pot</b><small>Taxes and fees go to a shared pot</small></span><input type="checkbox" id="ruleVacation" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Auctions</b><small>Unsold tiles go to open bid</small></span><input type="checkbox" id="ruleAuction" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>No jail rent</b><small>No rent while you sit in jail</small></span><input type="checkbox" id="ruleNoJailRent" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Mortgage</b><small>Borrow cash against owned tiles</small></span><input type="checkbox" id="ruleMortgage" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Doubles</b><small>Extra roll on doubles, 3 sends you to jail</small></span><input type="checkbox" id="ruleDoubles" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint glass-toggle--gold"><span class="glass-toggle__lbl"><b>Power cards</b><small>Rare one-shot bonus cards</small></span><input type="checkbox" id="rulePowerCards"><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint glass-toggle--mint"><span class="glass-toggle__lbl"><b>Bots</b><small>AI opponents in solo quick play</small></span><input type="checkbox" id="ruleAllowBots" checked><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Random player order</b><small>Shuffle who goes first when the game launches</small></span><input type="checkbox" id="ruleRandomOrder"><i class="glass-toggle__sw"></i></label>
-          </div>
-          <div class="power-preview hidden" id="powerPreview">
-            <span class="power-preview__chip">💥 Demolition</span>
-            <span class="power-preview__chip">🌀 Summon</span>
-            <span class="power-preview__chip">⚡ Rent surge</span>
-            <span class="power-preview__chip">✨ Free build</span>
-            <span class="power-preview__chip">🛡️ Shield</span>
-            <span class="power-preview__chip">🏖️ Pot pull</span>
-          </div>
-        </aside>
       </div>
     </section>
 
