@@ -7,6 +7,9 @@
   --glass:rgba(255,255,255,.05); --glass2:rgba(255,255,255,.09); --gborder:rgba(255,255,255,.11);
   --cream:#EEEBF8; --muted:#8E88A8; --ink:#F2EFFA;
   --danger:#E15B5B; --ok:#4FBE7E; --vio:#8B6FE8;
+  --hud-gutter:14px;
+  --hud-gap:12px;
+  --hud-side:min(380px,22vw);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -87,8 +90,12 @@ body.lobby-booting #roomLobby{opacity:0;pointer-events:none}
 .game-brand__dot{color:#5EEAD4}
 
 #scene{
-  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-  padding:0 0 0 min(300px,26vw);
+  position:fixed;
+  top:var(--hud-gutter);bottom:var(--hud-gutter);
+  left:calc(var(--hud-side) + var(--hud-gutter) + var(--hud-gap));
+  right:calc(var(--hud-side) + var(--hud-gutter) + var(--hud-gap));
+  display:flex;align-items:center;justify-content:center;
+  padding:0;
 }
 #tilt{
   transform-origin:center center;
@@ -134,7 +141,7 @@ body.lobby-booting #roomLobby{opacity:0;pointer-events:none}
 
 #board{
   position:relative;z-index:2;
-  display:grid;gap:4px;padding:11px;border-radius:10px;overflow:visible;
+  display:grid;gap:5px;padding:12px;border-radius:10px;overflow:visible;
   background:
     repeating-linear-gradient(88deg, rgba(0,0,0,.06) 0 1px, transparent 1px 3px),
     repeating-linear-gradient(2deg, rgba(255,255,255,.04) 0 1px, transparent 1px 4px),
@@ -373,7 +380,7 @@ canvas.cloth-flag{
   gap:0;width:100%;line-height:1.08;text-align:center;
 }
 .tile-engrave span{
-  display:block;font-family:var(--tile-font);font-weight:400;
+  display:block;font-family:var(--tile-font);font-weight:700;
   letter-spacing:.05em;
   color:rgba(255,255,255,.88);
   text-shadow:
@@ -382,24 +389,24 @@ canvas.cloth-flag{
     0 2px 4px rgba(0,0,0,.45);
 }
 .tile-engrave--city span{
-  font-size:clamp(11px,calc(var(--edge)*.24),15.5px);
+  font-size:clamp(12px,calc(var(--edge)*.28),18px);
   font-family:var(--tile-font);
-  font-weight:400;letter-spacing:.04em;
+  font-weight:700;letter-spacing:.04em;
   color:#fff;
   text-shadow:0 1px 3px rgba(0,0,0,.75),0 0 2px rgba(0,0,0,.5);
 }
 .tile-engrave--sm span,
 .tile-engrave--prem span{
-  font-size:clamp(9px,calc(var(--edge)*.17),12px);
+  font-size:clamp(10px,calc(var(--edge)*.2),13.5px);
   letter-spacing:.05em;
   line-height:1.12;
-  font-family:var(--tile-font);font-weight:400;
+  font-family:var(--tile-font);font-weight:700;
   color:#fff;
   text-shadow:0 1px 3px rgba(0,0,0,.7),0 0 1px rgba(0,0,0,.45);
 }
 .tile-engrave--prem span{
-  font-size:clamp(8.5px,calc(var(--edge)*.16),11.5px);
-  font-weight:400;letter-spacing:.04em;text-transform:none;
+  font-size:clamp(9.5px,calc(var(--edge)*.18),13px);
+  font-weight:700;letter-spacing:.04em;text-transform:none;
 }
 .tile-prem .tile-engrave--prem span,
 .tile-prem .tile-engrave--sm span{
@@ -410,8 +417,8 @@ canvas.cloth-flag{
 .corner-name{
   display:block;
   font-family:var(--tile-font);
-  font-size:clamp(13px,calc(var(--corner)*.2),22px);
-  font-weight:400;
+  font-size:clamp(14px,calc(var(--corner)*.22),24px);
+  font-weight:700;
   line-height:1.05;
   letter-spacing:.04em;
   text-transform:uppercase;
@@ -655,8 +662,8 @@ canvas.cloth-flag{
 .tile-prem__price{
   position:relative;z-index:2;margin-top:auto;
   font-family:var(--tile-font);
-  font-size:clamp(9px,calc(var(--edge)*.17),12.5px);font-weight:400;
-  padding:3px 8px;border-radius:99px;
+  font-size:clamp(10px,calc(var(--edge)*.2),14px);font-weight:700;
+  padding:4px 10px;border-radius:99px;
   background:rgba(8,6,14,.72);color:#fff;border:1px solid rgba(255,255,255,.22);flex-shrink:0;
   letter-spacing:.04em;
   box-shadow:0 2px 6px rgba(0,0,0,.35);
@@ -692,7 +699,7 @@ canvas.cloth-flag{
 
 .tile-name{
   font-family:var(--tile-font);
-  font-weight:400;font-size:clamp(11px,calc(var(--edge)*.23),15.5px);
+  font-weight:700;font-size:clamp(12px,calc(var(--edge)*.28),18px);
   line-height:1.15;letter-spacing:.04em;
   color:#fff;
   padding:0 3px;margin:0;width:100%;
@@ -700,16 +707,16 @@ canvas.cloth-flag{
   text-rendering:optimizeLegibility;
   text-shadow:0 1px 2px rgba(0,0,0,.65),0 0 1px rgba(0,0,0,.4);
 }
-.t-city .tile-name{font-weight:400;color:#fff}
+.t-city .tile-name{font-weight:700;color:#fff}
 .tile-price{
   display:inline-flex;align-items:center;justify-content:center;
   font-family:var(--tile-font);
   background:rgba(20,16,32,.78);
   border:1px solid rgba(255,255,255,.18);
   border-radius:999px;
-  padding:3px 10px;margin-top:auto;
-  font-size:clamp(9.5px,calc(var(--edge)*.2),13px);
-  font-weight:400;letter-spacing:.05em;
+  padding:4px 11px;margin-top:auto;
+  font-size:clamp(10.5px,calc(var(--edge)*.24),15px);
+  font-weight:700;letter-spacing:.05em;
   color:#FAFAFF;white-space:nowrap;
   flex-shrink:0;
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset;
@@ -1453,8 +1460,8 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 
 /* travelers + trade column (right of board) */
 #hudLeft{
-  position:absolute;left:14px;bottom:14px;
-  width:min(380px,42vw);min-width:300px;max-height:min(68vh,560px);
+  position:absolute;left:var(--hud-gutter);bottom:var(--hud-gutter);
+  width:var(--hud-side);min-width:260px;max-height:min(68vh,560px);
   display:flex;flex-direction:column;pointer-events:none;
 }
 #hudLeft > *{pointer-events:auto}
@@ -1533,10 +1540,12 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .portfolio-tag--lock{opacity:.7}
 
 #hudRight{
-  position:absolute;top:14px;right:14px;
+  position:absolute;
+  top:var(--hud-gutter);right:var(--hud-gutter);bottom:var(--hud-gutter);
   display:flex;flex-direction:column;gap:10px;
-  width:min(320px,42vw);min-width:248px;
+  width:var(--hud-side);min-width:260px;
 }
+#hudRight #tradeCard{margin-top:auto}
 #hudRight .glass{
   background:
     linear-gradient(168deg,rgba(44,38,58,.98),rgba(28,25,40,.99)),
@@ -1935,7 +1944,8 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .btn.vio{background:linear-gradient(180deg,#9B7CF0,#7C5CD9);color:#fff;box-shadow:0 5px 16px -5px rgba(124,92,217,.6)}
 
 #logDrawer{
-  position:absolute;left:14px;top:14px;width:min(248px,22vw);max-height:min(340px,42vh);
+  position:absolute;left:var(--hud-gutter);top:var(--hud-gutter);
+  width:var(--hud-side);min-width:260px;max-height:min(380px,calc(50vh - var(--hud-gutter)));
   border-radius:14px;display:flex;flex-direction:column;overflow:hidden;
   background:linear-gradient(168deg,rgba(34,30,46,.94),rgba(22,20,32,.96));
   backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
@@ -3826,14 +3836,14 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   .room-card__left{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}
   .room-card__right{width:100%;flex-direction:row;flex-wrap:wrap;align-items:center}
   .pick-chip{padding:9px 12px;font-size:11px}
-  #logDrawer{width:min(78vw,200px);max-height:min(240px,34vh)}
+  #logDrawer{width:var(--hud-side);max-height:min(280px,38vh)}
   #playersCard{max-width:calc(100vw - 28px);min-width:200px}
   .hub-dock .btn{padding:14px 22px;font-size:14px;min-width:120px}
   .hub-dock .btn.ghost{padding:14px 20px;font-size:13.5px;min-width:100px}
   .hub-dock .btn#rollBtn,.hub-dock .btn#endBtn{padding:18px 34px;font-size:17px;min-width:170px}
   .hub-dock .btn#auctionBtn,.hub-dock--buy .btn#auctionBtn{padding:18px 30px;font-size:16px;min-width:160px}
-  #hudRight{width:min(280px,86vw);min-width:200px}
-  #hudLeft{width:min(340px,92vw);min-width:280px;max-height:min(58vh,480px)}
+  #hudRight{width:var(--hud-side);min-width:240px}
+  #hudLeft{width:var(--hud-side);min-width:240px;max-height:min(58vh,480px)}
   #hudLeft .portfolio-list{max-height:min(44vh,400px)}
   .portfolio-owned{font-size:18px}
   .player-actions-card--compact{padding:8px 10px}

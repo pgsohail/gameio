@@ -520,7 +520,7 @@ function initBoard(per,{preview=false}={}){
       t.rents=[b,b*5,b*15,b*30,b*42,b*55];
       t.houseCost=50+Math.floor((i/N)*4)*50;
     }});
-  const EDGE=Math.max(74,Math.min(108,Math.round(1040/per)));
+  const EDGE=Math.max(84,Math.min(126,Math.round(1280/per)));
   const CORNER=Math.round(EDGE*1.88);
   document.documentElement.style.setProperty('--corner',CORNER+'px');
   document.documentElement.style.setProperty('--edge',EDGE+'px');
@@ -579,8 +579,15 @@ function initBoard(per,{preview=false}={}){
 function fitScene(){
   const t=$('table');if(!t||!$('board')?.firstChild)return;
   const W=t.offsetWidth+56,H=t.offsetHeight+56;
-  const logW=Math.min(220,innerWidth*0.2);
-  const s=Math.min((innerWidth-logW-48)/W,(innerHeight-96)/H,1);
+  const gutter=14,gap=12;
+  let side;
+  if(innerWidth<640)side=Math.min(200,innerWidth*0.42);
+  else if(innerWidth<960)side=Math.min(280,innerWidth*0.28);
+  else side=Math.min(380,Math.max(260,innerWidth*0.22));
+  const availW=innerWidth-2*(side+gutter+gap);
+  const availH=innerHeight-2*gutter;
+  const s=Math.min(Math.max(availW,120)/W,availH/H,1.28);
+  document.documentElement.style.setProperty('--hud-side',`${side}px`);
   document.documentElement.style.setProperty('--scene-scale',String(s));
   scheduleCountryBrackets(TILES, GROUPS, { force: true });
 }
