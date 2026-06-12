@@ -1,4 +1,4 @@
-import { $ } from '../lib/format.js';
+import { $, shuffle } from '../lib/format.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
@@ -17,6 +17,7 @@ const RULE_ICONS = [
   { key: 'doubles', icon: '🎲', title: 'Doubles roll again' },
   { key: 'powerCards', icon: '🃏', title: 'Power cards' },
   { key: 'allowBots', icon: '🤖', title: 'Fill with bots' },
+  { key: 'randomOrder', icon: '🔀', title: 'Random turn order' },
 ];
 
 let chosenPer = 12;
@@ -33,6 +34,7 @@ let lastRoomRules = null;
 let roomSocket = null;
 let roomsPanelOpen = false;
 let rulesSaveTimer = null;
+let gameStarted = false;
 
 const DIFF_HINTS = {
   relaxed: 'Gentler bots and slower bidding.',
@@ -184,6 +186,7 @@ function gatherRules() {
     doubles: $('ruleDoubles')?.checked ?? true,
     powerCards: $('rulePowerCards')?.checked ?? false,
     allowBots: $('ruleAllowBots')?.checked ?? true,
+    randomOrder: $('ruleRandomOrder')?.checked ?? false,
   };
 }
 
@@ -240,8 +243,10 @@ function scheduleRulesSave() {
 }
 
 function startFromPayload(payload) {
+  if (gameStarted) return;
   const u = getUser();
   if (!u || !onStartGame) return;
+  gameStarted = true;
   const adminId = payload.adminId ?? 0;
   const players = payload.players.map((p, i) => ({
     name: p.userId === u.id ? u.name : p.name,
@@ -252,7 +257,12 @@ function startFromPayload(payload) {
   }));
   disconnectRoomSocket();
   currentRoomId = null;
-  onStartGame({ rules: payload.rules, players, adminId });
+  try {
+    onStartGame({ rules: payload.rules, players, adminId });
+  } catch (e) {
+    gameStarted = false;
+    alert(e?.message || 'Could not start the game. Try refreshing and creating a new room.');
+  }
 }
 
 function disconnectRoomSocket() {
@@ -428,11 +438,14 @@ async function confirmBoardJoin() {
 }
 
 async function launchWaitingRoom() {
-  if (!currentRoomId) return;
+  if (!currentRoomId || gameStarted) return;
+  const btn = $('boardLaunchBtn');
+  btn?.setAttribute('disabled', 'true');
   try {
     const payload = await roomsApi.launch(currentRoomId);
     startFromPayload(payload);
   } catch (e) {
+    btn?.removeAttribute('disabled');
     alert(e.message || 'Could not launch');
   }
 }
@@ -441,7 +454,7 @@ async function quickPlayOffline() {
   const u = await ensureUser();
   if (!u) return;
   const rules = gatherRules();
-  const players = [{ name: u.name, bot: false, emoji: hostEmoji, color: hostColor, isAdmin: true }];
+  let players = [{ name: u.name, bot: false, emoji: hostEmoji, color: hostColor, isAdmin: true }];
   if (rules.allowBots) {
     players.push({
       name: 'Bot 2',
@@ -454,7 +467,19 @@ async function quickPlayOffline() {
     alert('Turn on Bots in advanced rules, or create a room to play with friends.');
     return;
   }
-  onStartGame?.({ rules, players, adminId: 0 });
+  let adminId = 0;
+  if (rules.randomOrder && players.length > 1) {
+    players = shuffle(players);
+    adminId = players.findIndex(p => p.isAdmin);
+    if (adminId < 0) adminId = 0;
+  }
+  gameStarted = true;
+  try {
+    onStartGame?.({ rules, players, adminId });
+  } catch (e) {
+    gameStarted = false;
+    alert(e?.message || 'Could not start the game.');
+  }
 }
 
 function updateBoardLinkUI(roomId) {

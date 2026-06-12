@@ -361,6 +361,15 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
 
   if (players.length < 2) return res.status(400).json({ error: 'Need at least 2 players' });
 
+  if (room.rules.randomOrder) {
+    for (let i = players.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [players[i], players[j]] = [players[j], players[i]];
+    }
+  }
+  const adminId = players.findIndex(p => p.userId === room.hostId);
+  const finalAdminId = adminId >= 0 ? adminId : (room.adminSlot ?? 0);
+
   room.status = 'playing';
   room.updatedAt = Date.now();
 
@@ -368,7 +377,7 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
     type: 'game_start',
     rules: room.rules,
     players,
-    adminId: room.adminSlot ?? 0,
+    adminId: finalAdminId,
   };
 
   const subs = roomSubs.get(room.id);

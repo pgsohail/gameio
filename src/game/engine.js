@@ -166,7 +166,7 @@ function startGameFromLobby({ rules, players, adminId = 0 }) {
   document.body.classList.remove('room-lobby-mode');
   $('lobby')?.remove();
   setGameBrandVisible(true);
-  $('hud').classList.remove('hidden');
+  $('hud')?.classList.remove('hidden');
   renderAll();
   log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
   startTurn();
@@ -185,6 +185,48 @@ function gridPos(i){
   if(i<=3*PER) return {r:1,c:1+(i-2*PER),side:'top'};
   return {r:1+(i-3*PER),c:GRID,side:'right'};
 }
+
+const DOCK_HTML=`<button class="btn" id="rollBtn">🎲 Roll Dice</button>
+<button class="btn" id="buyBtn">Buy</button>
+<button class="btn ghost" id="auctionBtn">Auction</button>
+<button class="btn ghost" id="skipBtn">Pass</button>
+<button class="btn ghost" id="endBtn">End Turn</button>
+<button class="btn" id="jailPayBtn">Pay $100 fine</button>
+<button class="btn ghost" id="jailCardBtn">Use jail card</button>
+<button class="btn hidden" id="settleDebtBtn" type="button">Pay debt</button>
+<button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>`;
+
+function bindDockWires(){
+  if(!$('rollBtn'))return;
+  $('rollBtn').onclick=humanRoll;
+  $('buyBtn').onclick=()=>{buyCurrent(S.cur);afterAction(false);};
+  $('auctionBtn').onclick=()=>{
+    const t=TILES[S.cur.pos];
+    if(t.owner==null&&t.price&&S.rules.auction){log(`<b>${S.cur.name}</b> sends ${t.name} to auction.`,S.cur);afterAction(true,t);}
+  };
+  $('skipBtn').onclick=()=>{
+    const t=TILES[S.cur.pos];
+    log(`<b>${S.cur.name}</b> passes on ${t.name}.`,S.cur);afterAction(false);
+  };
+  $('endBtn').onclick=endTurn;
+  $('settleDebtBtn').onclick=()=>{const p=localHuman();if(p)settleDebt(p);};
+  $('jailPayBtn').onclick=()=>payJailFine(S.cur);
+  $('jailCardBtn').onclick=()=>useJailCard(S.cur);
+}
+
+function ensureGameDock(){
+  let dock=$('dock');
+  if(!dock){
+    dock=document.createElement('div');
+    dock.id='dock';
+    dock.className='hub-dock';
+    dock.innerHTML=DOCK_HTML;
+    $('hud')?.appendChild(dock);
+    bindDockWires();
+  }
+  return dock;
+}
+
 function initBoard(per){
   TILES=genBoard(per);
   N=TILES.length;PER=per;GRID=per+1;
@@ -199,7 +241,11 @@ function initBoard(per){
   const CORNER=Math.round(EDGE*1.88);
   document.documentElement.style.setProperty('--corner',CORNER+'px');
   document.documentElement.style.setProperty('--edge',EDGE+'px');
-  const board=$('board');board.innerHTML='';
+  const board=$('board');
+  if(!board)return;
+  const dockEl=ensureGameDock();
+  if(board.contains(dockEl))$('hud')?.appendChild(dockEl);
+  board.innerHTML='';
   board.style.gridTemplateColumns=`${CORNER}px repeat(${per-1},${EDGE}px) ${CORNER}px`;
   board.style.gridTemplateRows=board.style.gridTemplateColumns;
   const countryLayer=document.createElement('div');countryLayer.id='countryLayer';
@@ -208,7 +254,7 @@ function initBoard(per){
   hub.style.gridRow=`2/${GRID}`;hub.style.gridColumn=`2/${GRID}`;
   hub.innerHTML=`
     <div id="hubBrand">
-      <div id="hubLogo">${S.rules.title}</div>
+      <div id="hubLogo">${S.rules?.title||'Buildup.io'}</div>
       <div id="hubRibbon">Advanced Edition</div>
     </div>
     <div id="hubMid">
@@ -221,8 +267,9 @@ function initBoard(per){
       </div>
     </div>`;
   board.appendChild(hub);
-  const dock=$('dock');
-  if(dock){dock.classList.add('hub-dock');$('hubDockSlot').appendChild(dock);}
+  const dock=ensureGameDock();
+  dock.classList.add('hub-dock');
+  $('hubDockSlot')?.appendChild(dock);
   Dice3D.init($('diceLayer'));
   Dice3D.setValues(1+rand(6),1+rand(6),false);
 
@@ -261,6 +308,7 @@ function fitScene(){
 document.addEventListener('click',e=>{
   if(e.target.id==='logBtn'){
     const d=$('logDrawer');
+    if(!d)return;
     d.classList.toggle('closed');
     e.target.textContent=d.classList.contains('closed')?'Show':'Hide';
   }
@@ -283,6 +331,7 @@ function playerTileLabel(p){
 }
 function renderPlayers(){
   const wrap=$('playersCard');
+  if(!wrap)return;
   const human=localHuman();
   const rows=S.players.map((p,i)=>{
     const tags=[p.jail?'⛓️ Jail':'',p.goojf?`🎟${p.goojf>1?'×'+p.goojf:''}`:''].filter(Boolean).join(' · ');
@@ -358,12 +407,13 @@ function renderTiles(){
   });
 }
 function renderDock(){
+  ensureGameDock();
   const p=S.cur,ph=S.phase;
-  const show=(id,on)=>$(id).classList.toggle('hidden',!on);
+  const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle('hidden',!on);};
   const jailing=ph==='jail';
   const humanTurn=!p.bot&&!S.over;
   show('rollBtn',humanTurn&&(ph==='roll'||jailing));
-  $('rollBtn').textContent=jailing?'🎲 Roll for doubles':'🎲 Roll Dice';
+  if($('rollBtn'))$('rollBtn').textContent=jailing?'🎲 Roll for doubles':'🎲 Roll Dice';
   show('buyBtn',humanTurn&&ph==='buy');show('skipBtn',humanTurn&&ph==='buy');
   show('auctionBtn',humanTurn&&ph==='buy'&&S.rules.auction);
   show('endBtn',humanTurn&&ph==='end');
@@ -393,7 +443,7 @@ function renderDock(){
   show('powerCardsBtn',canPower);
   const pcb=$('powerCardsBtn');
   if(pcb&&canPower)pcb.textContent=`🃏 Power cards (${human.powerCards.length})`;
-  if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn'].forEach(id=>$(id).classList.add('hidden'));
+  if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn'].forEach(id=>{const el=$(id);if(el)el.classList.add('hidden');});
 }
 function tradeTileSummary(idxs,cash){
   const parts=idxs.map(i=>TILES[i]?.name).filter(Boolean);
@@ -1751,31 +1801,18 @@ function botBuild(p){
 /* ============================================================
    DOCK WIRES
 ============================================================ */
-$('rollBtn').onclick=humanRoll;
-$('buyBtn').onclick=()=>{buyCurrent(S.cur);afterAction(false);};
-$('auctionBtn').onclick=()=>{
-  const t=TILES[S.cur.pos];
-  if(t.owner==null&&t.price&&S.rules.auction){log(`<b>${S.cur.name}</b> sends ${t.name} to auction.`,S.cur);afterAction(true,t);}
-};
-$('skipBtn').onclick=()=>{
-  const t=TILES[S.cur.pos];
-  log(`<b>${S.cur.name}</b> passes on ${t.name}.`,S.cur);afterAction(false);
-};
-$('endBtn').onclick=endTurn;
-$('tradeBtn').onclick=openTrade;
+bindDockWires();
+$('tradeBtn')?.addEventListener('click',openTrade);
 $('tradeCancel').onclick=()=>$('tradeModal').classList.add('hidden');
 $('tradePropose').onclick=proposeTrade;
 $('tradeAccept').onclick=acceptIncomingTrade;
 $('tradeReject').onclick=rejectIncomingTrade;
 $('tradeNegotiate').onclick=()=>negotiateTrade(viewingTradeId);
 $('tradeReviewNegotiate').onclick=()=>negotiateTrade(viewingTradeId);
-$('settleDebtBtn').onclick=()=>{const p=localHuman();if(p)settleDebt(p);};
-$('tradeReviewClose').onclick=closeTradeViewModal;
+$('tradeReviewClose')?.addEventListener('click',closeTradeViewModal);
 $('tradeReviewModal').onclick=e=>{if(e.target.id==='tradeReviewModal')closeTradeViewModal();};
 $('propModal').onclick=e=>{if(e.target.id==='propModal')closePropDetail();};
-$('jailPayBtn').onclick=()=>payJailFine(S.cur);
-$('jailCardBtn').onclick=()=>useJailCard(S.cur);
-$('manageClose').onclick=()=>$('manageModal').classList.add('hidden');
+$('manageClose')?.addEventListener('click',()=>$('manageModal')?.classList.add('hidden'));
 function afterAction(toAuction,tile){
   const again=S.pendingDouble;S.pendingDouble=false;
   if(toAuction)startAuction(tile,()=>finishMovePhase(S.cur,again));
