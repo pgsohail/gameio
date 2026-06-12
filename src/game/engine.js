@@ -126,7 +126,11 @@ const PLAYER_COLORS=BRIGHT_COLORS;
 const TOKEN_EMOJI=['🚂','✈️','🚢','🎩','🚗','🚀','🐪','🦁','🏎️','🛸','🎒','🌍','🛳️','🚁','🏍️','🐘'];
 const DIFF={relaxed:{buyBuf:350,buildRes:450,bidMult:0.9},classic:{buyBuf:180,buildRes:250,bidMult:1.1},shark:{buyBuf:60,buildRes:120,bidMult:1.35}};
 let tradeSeq=1;
+const DICE_SYNC_LEAD_MS = 100;
+const TURN_LIMIT_MS = 90_000;
+let turnTimerInterval = null;
 const S={players:[],turn:0,phase:'idle',dice:[1,1],doubles:0,fortune:[],treasury:[],pot:0,over:false,recentTrades:[],openTrades:[],rules:{},
+  turnStartedAt:0,voteKick:{voters:[]},
   get cur(){return this.players[this.turn];}};
 
 let GROUPS={};
@@ -172,6 +176,31 @@ function exportGameState() {
     })),
     fortuneKeys: S.fortune.map(c => c.x),
     treasuryKeys: S.treasury.map(c => c.x),
+    turnStartedAt: S.turnStartedAt || 0,
+    voteKick: S.voteKick ? { voters: [...(S.voteKick.voters || [])] } : { voters: [] },
+    auction: serializeAuction(),
+    openTrades: (S.openTrades || []).map(t => ({
+      id: t.id,
+      fromId: t.fromId,
+      toId: t.toId,
+      offerIdx: [...t.offerIdx],
+      wantIdx: [...t.wantIdx],
+      offerCash: t.offerCash,
+      wantCash: t.wantCash,
+      status: t.status,
+      awaitingId: t.awaitingId,
+      round: t.round,
+      history: t.history.map(h => ({
+        round: h.round,
+        by: h.by,
+        offerIdx: h.offerIdx ? [...h.offerIdx] : undefined,
+        wantIdx: h.wantIdx ? [...h.wantIdx] : undefined,
+        offerCash: h.offerCash,
+        wantCash: h.wantCash,
+        text: h.text,
+      })),
+    })),
+    tradeSeq,
   };
 }
 
@@ -213,33 +242,47 @@ function importGameState(state) {
   }
   if (state.fortuneKeys) S.fortune = rebuildDeck(FORTUNE, state.fortuneKeys);
   if (state.treasuryKeys) S.treasury = rebuildDeck(TREASURY, state.treasuryKeys);
+  S.turnStartedAt = state.turnStartedAt || S.turnStartedAt || Date.now();
+  S.voteKick = state.voteKick ? { voters: [...(state.voteKick.voters || [])] } : { voters: [] };
+  if (state.tradeSeq) tradeSeq = state.tradeSeq;
+  if (state.openTrades) {
+    S.openTrades = state.openTrades.map(t => ({
+      ...t,
+      offerIdx: [...(t.offerIdx || [])],
+      wantIdx: [...(t.wantIdx || [])],
+      history: (t.history || []).map(h => ({
+        ...h,
+        offerIdx: h.offerIdx ? [...h.offerIdx] : undefined,
+        wantIdx: h.wantIdx ? [...h.wantIdx] : undefined,
+      })),
+    }));
+  }
+  restoreAuctionState(state.auction);
   if (Date.now() >= remoteRollUntil) {
     Dice3D.setValues(S.dice[0], S.dice[1], false);
   }
   renderAll();
+  checkVoteKick();
   postSyncTurn();
-}
-
-function playDiceForAll(d1, d2, rollerName, isDouble) {
-  S.dice = [d1, d2];
-  Dice3D.roll(d1, d2);
-  const total = d1 + d2;
-  const p = S.players[S.turn];
-  const label = rollerName || p?.name || 'Player';
-  if (S.phase === 'jail' || p?.jail) {
-    msg(`${label} rolls for doubles…`);
-  } else {
-    log(`<b>${label}</b> rolls <b>${d1} + ${d2} = ${total}</b>${isDouble ? ' (doubles!)' : ''}.`, p || undefined);
-  }
 }
 
 function onRemoteDiceRoll(msg) {
   const d1 = +msg.d1;
   const d2 = +msg.d2;
-  if (!d1 || !d2) return;
-  remoteRollUntil = Date.now() + DICE_ROLL_MS + 120;
+  if (d1 < 1 || d2 < 1) return;
+  const startAt = msg.startAt || Date.now();
+  remoteRollUntil = startAt + DICE_ROLL_MS + 200;
+  S.dice = [d1, d2];
   const isDouble = d1 === d2 && S.rules.doubles;
-  playDiceForAll(d1, d2, msg.rollerName, isDouble);
+  Dice3D.rollAt(d1, d2, startAt);
+  const p = S.players[S.turn];
+  const label = msg.rollerName || p?.name || 'Player';
+  const total = d1 + d2;
+  if (S.phase === 'jail' || p?.jail) {
+    msg(`${label} rolls for doubles…`);
+  } else {
+    log(`<b>${label}</b> rolls <b>${d1} + ${d2} = ${total}</b>${isDouble ? ' (doubles!)' : ''}.`, p || undefined);
+  }
 }
 
 registerDiceRollHandler(onRemoteDiceRoll);
@@ -313,6 +356,11 @@ function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }
     $('lobby')?.classList.add('hidden');
     setGameBrandVisible(true);
     $('hud')?.classList.remove('hidden');
+    S.turnStartedAt=Date.now();
+    S.voteKick={voters:[]};
+    ensureTurnTimer();
+    const vk=$('voteKickBtn'); if(vk)vk.onclick=castVoteKick;
+    const bb=$('bankruptBtn'); if(bb)bb.onclick=()=>voluntaryBankrupt(localHuman());
     renderAll();
     log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
     startTurn();
@@ -459,23 +507,28 @@ function rollDiceValues(){
   S.dice=[1+rand(6),1+rand(6)];
   return S.dice[0]+S.dice[1];
 }
+function msUntilDiceDone(startAt){
+  return Math.max(0,(startAt||Date.now())+DICE_ROLL_MS-Date.now());
+}
 function rollDiceAndBroadcast(p){
   const d1=1+rand(6), d2=1+rand(6);
   S.dice=[d1,d2];
   if(isMpGame()){
-    broadcastDiceRoll(d1,d2,p.name,p.userId);
-    broadcastStateNow();
+    const startAt=Date.now()+DICE_SYNC_LEAD_MS;
+    broadcastDiceRoll(d1,d2,p.name,p.userId,startAt);
+    return {total:d1+d2,startAt};
   }
   Dice3D.roll(d1,d2);
-  return d1+d2;
+  return {total:d1+d2,startAt:Date.now()};
 }
-function rollDice(){return rollDiceAndBroadcast(S.cur);}
+function rollDice(){return rollDiceAndBroadcast(S.cur).total;}
 
 /* ============================================================
    RENDER
 ============================================================ */
 function renderAll(){
   renderPlayers();
+  renderActionsCard();
   renderTiles();
   renderDock();
   renderTradeCard();
@@ -511,11 +564,6 @@ function renderPlayers(){
     const botBadge=p.bot?'<span class="p-bot" aria-hidden="true">🤖</span>':'';
     const powerBadge=S.rules.powerCards&&p.powerCards?.length
       ?`<span class="p-power-badge" title="${p.powerCards.length} power card${p.powerCards.length>1?'s':''}">🃏 ${p.powerCards.length}</span>`:'';
-    const bankruptBtn=human&&p.id===human.id&&!p.dead
-      ?`<button type="button" class="p-bankrupt-btn" title="Leave the game — properties return to the bank">
-          <span class="p-bankrupt-btn__icon" aria-hidden="true">💸</span>
-          <span class="p-bankrupt-btn__label">Bankrupt</span>
-        </button>`:'';
     return `<div class="player-row${i===S.turn&&!p.dead?' current':''}${p.dead?' dead':''}${p.debt?' player-row--debt':''}" style="--pc:${p.color}">
       <span class="p-av p-av--${i%6}">${p.emoji}</span>
       <span class="p-info">
@@ -528,14 +576,96 @@ function renderPlayers(){
       </span>
       <span class="p-aside">
         <span class="p-cash">${p.dead?'Bankrupt':fmt(p.cash)}</span>
-        ${bankruptBtn}
       </span>
     </div>`;
   }).join('');
   wrap.innerHTML=`<div class="hud-card-head"><span class="hud-card-icon" aria-hidden="true">👥</span><h4 class="players-title">Travelers</h4></div><div class="players-list">${rows}</div>`;
-  wrap.querySelectorAll('.p-bankrupt-btn').forEach(btn=>{
-    btn.onclick=()=>voluntaryBankrupt(localHuman());
-  });
+}
+function aliveHumans(){
+  return S.players.filter(p=>!p.dead&&!p.bot);
+}
+function voteKickMajority(){
+  const alive=aliveHumans();
+  const cur=S.cur;
+  if(!cur||cur.bot)return 1;
+  const others=alive.filter(p=>p.id!==cur.id);
+  return Math.max(1,Math.ceil(others.length/2));
+}
+function checkVoteKick(){
+  if(!S.voteKick?.voters?.length)return;
+  const cur=S.cur;
+  if(!cur||cur.dead||cur.bot)return;
+  const needed=voteKickMajority();
+  const valid=new Set(aliveHumans().map(p=>p.id));
+  const count=S.voteKick.voters.filter(id=>valid.has(id)&&id!==cur.id).length;
+  const mayExecute=!isMpGame()||isMpHost();
+  if(count>=needed&&mayExecute){
+    log(`🗳️ Vote kick — <b>${cur.name}</b> is removed for stalling.`,cur);
+    bankrupt(cur,null);
+    S.voteKick={voters:[]};
+    broadcastStateNow();
+    if(!S.over)setTimeout(startTurn,500);
+  }
+}
+function castVoteKick(){
+  const me=localHuman();
+  const cur=S.cur;
+  if(!me||!cur||me.id===cur.id||cur.dead||cur.bot)return;
+  if(!S.voteKick)S.voteKick={voters:[]};
+  if(!S.voteKick.voters.includes(me.id)){
+    S.voteKick.voters.push(me.id);
+    log(`🗳️ <b>${me.name}</b> voted to kick <b>${cur.name}</b>.`);
+  }
+  if(isMpGame())broadcastStateNow();
+  checkVoteKick();
+  renderActionsCard();
+}
+function renderActionsCard(){
+  const card=$('playerActionsCard');
+  if(!card)return;
+  const human=localHuman();
+  const inGame=human&&!human.dead&&!S.over;
+  card.classList.toggle('hidden',!inGame);
+  if(!inGame)return;
+  const cur=S.cur;
+  const elapsed=Math.max(0,Date.now()-(S.turnStartedAt||Date.now()));
+  const left=Math.max(0,TURN_LIMIT_MS-elapsed);
+  const secs=Math.ceil(left/1000);
+  const m=Math.floor(secs/60);
+  const s=secs%60;
+  const val=$('turnTimerVal');
+  const ring=$('turnTimerRing');
+  const hint=$('turnTimerHint');
+  const pct=Math.min(100,(elapsed/TURN_LIMIT_MS)*100);
+  if(val)val.textContent=`${m}:${String(s).padStart(2,'0')}`;
+  if(ring)ring.style.setProperty('--pct',`${pct}`);
+  if(hint){
+    if(cur?.dead)hint.textContent='';
+    else if(cur?.id===human?.id)hint.textContent='Your turn — roll or act before time runs out.';
+    else hint.textContent=`${cur?.name||'Player'}'s turn`;
+  }
+  const kickBtn=$('voteKickBtn');
+  const status=$('voteKickStatus');
+  const canVote=cur&&!cur.dead&&!cur.bot&&human&&human.id!==cur.id;
+  const showKick=canVote&&(elapsed>=30_000||left<=15_000);
+  kickBtn?.classList.toggle('hidden',!showKick);
+  if(status){
+    const needed=voteKickMajority();
+    const votes=S.voteKick?.voters?.filter(id=>id!==cur?.id).length||0;
+    if(showKick&&votes>0){
+      status.textContent=`${votes}/${needed} votes to kick ${cur.name}`;
+      status.classList.remove('hidden');
+    }else status.classList.add('hidden');
+  }
+  $('bankruptBtn')?.classList.toggle('hidden',!human||human.dead);
+}
+function ensureTurnTimer(){
+  if(turnTimerInterval)return;
+  turnTimerInterval=setInterval(()=>{
+    if(S.over||!$('hud')||$('hud').classList.contains('hidden'))return;
+    renderActionsCard();
+    checkVoteKick();
+  },1000);
 }
 function renderTiles(){
   TILES.forEach(t=>{
@@ -1006,6 +1136,8 @@ function startTurn(){
   if(S.over)return;
   while(S.cur.dead)S.turn=(S.turn+1)%S.players.length;
   S.doubles=0;
+  S.turnStartedAt=Date.now();
+  S.voteKick={voters:[]};
   const p=S.cur;
   p.rentSurge=false;
   if(p.jail){S.phase='jail';msg(`${p.name} is in prison (attempt ${p.jailTurns+1} of 3).`);}
@@ -1034,15 +1166,17 @@ function humanRoll(){
 function doRoll(p){
   if(isMpGame()&&!isMyTurn())return;
   S.phase='moving';renderDock();
-  const total=rollDiceAndBroadcast(p);
+  const {total,startAt}=rollDiceAndBroadcast(p);
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
-  log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble?' (doubles!)':''}.`,p);
+  if(!isMpGame()){
+    log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble?' (doubles!)':''}.`,p);
+  }
   setTimeout(()=>{
     if(isDouble)S.doubles++;
     if(S.doubles>=3){log(`<b>${p.name}</b> rolls three doubles in a row — straight to prison!`,p);sendToJail({cur:p});finishMovePhase(p,false);return;}
     if(isMpGame())broadcastStateNow();
     animateMove(p,total,()=>resolveTile(p,{rolledDouble:isDouble}));
-  },DICE_ROLL_MS);
+  },msUntilDiceDone(startAt));
 }
 function animateMove(p,steps,done){
   const dir=steps<0?-1:1;let left=Math.abs(steps);
@@ -1104,7 +1238,7 @@ function resolveTile(p,opts={}){
         if(p.bot){
           if(isMpGame()&&!isMpHost()){finishMovePhase(p,again);break;}
           if(botWantsBuy(p,t)){buyCurrent(p);finishMovePhase(p,again);}
-          else if(S.rules.auction){log(`<b>${p.name}</b> sends ${t.name} to auction.`,p);startAuction(t,()=>finishMovePhase(p,again));}
+          else if(S.rules.auction){log(`<b>${p.name}</b> sends ${t.name} to auction.`,p);startAuction(t,{playerId:p.id,again});}
           else{log(`<b>${p.name}</b> passes on ${t.name}.`,p);finishMovePhase(p,again);}
         }else{
           S.phase='buy';S.pendingDouble=again;
@@ -1180,7 +1314,7 @@ function useJailCard(p){
 function jailRoll(p){
   if(isMpGame()&&!isMyTurn())return;
   S.phase='moving';renderDock();
-  const total=rollDiceAndBroadcast(p);
+  const {total,startAt}=rollDiceAndBroadcast(p);
   setTimeout(()=>{
     if(S.dice[0]===S.dice[1]){
       p.jail=false;p.jailTurns=0;
@@ -1197,7 +1331,7 @@ function jailRoll(p){
       }else if(p.bot)setTimeout(endTurn,600);
       else{S.phase='end';msg('Still locked up. End your turn.');renderAll();}
     }
-  },DICE_ROLL_MS);
+  },msUntilDiceDone(startAt));
 }
 
 /* ---------- power cards ---------- */
@@ -1402,17 +1536,80 @@ function drawCard(p,deck,again){
    AUCTION
 ============================================================ */
 let A=null;
-function startAuction(tile,cb){
-  const bidders=alive().filter(p=>p.cash>=10);
-  if(bidders.length===0){cb();return;}
-  A={tile,bid:0,leader:null,active:bidders.map(p=>p.id),idx:0,cb,history:[]};
+function serializeAuction(){
+  if(!A||!A.tile)return null;
+  const tileIdx=TILES.indexOf(A.tile);
+  if(tileIdx<0)return null;
+  return{
+    tileIdx,bid:A.bid,leader:A.leader,
+    active:[...A.active],idx:A.idx,
+    history:A.history.map(h=>({...h})),
+    afterPlayerId:A.afterPlayerId,afterAgain:!!A.afterAgain,
+  };
+}
+function setupAuctionModal(tile){
   $('aucPropHead').innerHTML=`${propHeadHTML(tile)}<h3 class="auc-hero__name">${tile.name}</h3><div class="auc-hero__list">List price ${fmt(tile.price)}</div>`;
   $('aucRentPanel').innerHTML=`<div class="prop-rents">${propRentHTML(tile)||'<div class="prop-row"><span>Special tile</span><b>—</b></div>'}</div>${propFootHTML(tile)}`;
   $('aucHistory').innerHTML='';
   const lav0=$('aucLeadAv');
   if(lav0){lav0.textContent='—';lav0.classList.remove('has-lead');lav0.style.removeProperty('--pc');}
-  $('aucModal').classList.remove('hidden');
+}
+function updateAucRestoreBar(){
+  const bar=$('aucRestoreBar');
+  if(!bar)return;
+  const min=$('aucModal')?.classList.contains('overlay--minimized');
+  const open=A&&!$('aucModal')?.classList.contains('hidden');
+  bar.classList.toggle('hidden',!(min&&open));
+  if(A?.tile)bar.textContent=`🔨 ${A.tile.name} — tap to open auction`;
+}
+function updateTradeRestoreBar(){
+  const bar=$('tradeRestoreBar');
+  if(!bar)return;
+  const min=$('tradeReviewModal')?.classList.contains('overlay--minimized');
+  const open=viewingTradeId&&!$('tradeReviewModal')?.classList.contains('hidden');
+  bar.classList.toggle('hidden',!(min&&open));
+  const t=viewingTradeId?getOpenTrade(viewingTradeId):null;
+  if(t){
+    const from=S.players[t.fromId],to=S.players[t.toId];
+    bar.textContent=`🤝 ${from?.name||'?'} → ${to?.name||'?'} — tap to review`;
+  }
+}
+function restoreAuctionState(data){
+  if(!data){
+    if(A){$('aucModal')?.classList.add('hidden');A=null;updateAucRestoreBar();}
+    return;
+  }
+  const tile=TILES[data.tileIdx];
+  if(!tile)return;
+  const wasActive=!!A;
+  A={
+    tile,bid:data.bid??0,leader:data.leader??null,
+    active:[...(data.active||[])],idx:data.idx??0,
+    history:(data.history||[]).map(h=>({...h})),
+    afterPlayerId:data.afterPlayerId,afterAgain:!!data.afterAgain,
+  };
+  if(!wasActive)setupAuctionModal(tile);
+  $('aucModal')?.classList.remove('hidden');
+  aucRender();
+  updateAucRestoreBar();
+  if(!wasActive&&aucCur()?.bot&&isMpHost())setTimeout(aucStep,400);
+}
+function startAuction(tile,after={}){
+  const bidders=alive().filter(p=>p.cash>=10);
+  if(bidders.length===0){
+    const p=after.playerId!=null?S.players.find(x=>x.id===after.playerId):S.cur;
+    if(p)finishMovePhase(p,!!after.again);
+    return;
+  }
+  A={
+    tile,bid:0,leader:null,active:bidders.map(p=>p.id),idx:0,history:[],
+    afterPlayerId:after.playerId??S.cur?.id,afterAgain:!!after.again,
+  };
+  setupAuctionModal(tile);
+  $('aucModal')?.classList.remove('hidden','overlay--minimized');
+  $('aucRestoreBar')?.classList.add('hidden');
   aucRender();aucStep();
+  if(isMultiplayerActive())broadcastStateNow();
 }
 function aucCur(){return S.players[A.active[A.idx%A.active.length]];}
 function aucRender(){
@@ -1432,7 +1629,8 @@ function aucRender(){
     const folded=!A.active.includes(p.id);
     return `<span class="aucP${folded?' folded':''}${A.leader===p.id?' lead':''}" style="--pc:${p.color};border-left:3px solid ${p.color}">${p.emoji} ${p.name}</span>`;
   }).join('');
-  const cur=aucCur();const humanUp=cur&&!cur.bot;
+  const cur=aucCur();
+  const humanUp=cur&&!cur.bot&&(!isMpGame()||cur.userId===getUser()?.id);
   ['aucB10','aucB50','aucB100','aucFold'].forEach(id=>$(id).disabled=!humanUp);
   if(humanUp){
     $('aucStatus').textContent=`${cur.name}, raise or fold.`;
@@ -1442,19 +1640,26 @@ function aucRender(){
   }
 }
 function aucBid(p,amount){
+  if(isMpGame()&&!p.bot&&p.userId!==getUser()?.id)return;
   A.bid=amount;A.leader=p.id;
   A.history.unshift({pid:p.id,amount});
   log(`🔨 <b>${p.name}</b> bids ${fmt(amount)} for ${A.tile.name}.`,p);
-  A.idx++;aucRender();setTimeout(aucStep,650);
+  A.idx++;aucRender();
+  if(isMultiplayerActive())broadcastStateNow();
+  setTimeout(aucStep,650);
 }
 function aucFold(p){
+  if(isMpGame()&&!p.bot&&p.userId!==getUser()?.id)return;
   A.active=A.active.filter(id=>id!==p.id);
   if(A.idx>=A.active.length)A.idx=0;
   log(`<b>${p.name}</b> folds.`,p);
-  aucRender();setTimeout(aucStep,500);
+  aucRender();
+  if(isMultiplayerActive())broadcastStateNow();
+  setTimeout(aucStep,500);
 }
 function aucStep(){
   if(!A)return;
+  if(isMpGame()&&!isMpHost()){aucRender();return;}
   if(A.active.length===0){aucEnd(null);return;}
   if(A.active.length===1&&A.leader===A.active[0]){aucEnd(A.leader);return;}
   if(A.active.length===1&&A.leader==null){
@@ -1483,8 +1688,11 @@ $('aucB50').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+50);};
 $('aucB100').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+100);};
 $('aucFold').onclick=()=>{const p=aucCur();if(!p.bot)aucFold(p);};
 function aucEnd(winnerId){
+  if(isMpGame()&&!isMpHost())return;
   $('aucModal').classList.add('hidden');
-  const t=A.tile,cb=A.cb;
+  $('aucModal')?.classList.remove('overlay--minimized');
+  $('aucRestoreBar')?.classList.add('hidden');
+  const t=A.tile,afterPlayerId=A.afterPlayerId,afterAgain=A.afterAgain;
   if(winnerId!=null){
     const w=S.players[winnerId];
     const groupsBefore=new Set(ownedGroupIds(w));
@@ -1495,7 +1703,12 @@ function aucEnd(winnerId){
     playPurchaseGlow(t,w.color);
     celebrateNewMonopolies(w,groupsBefore);
   }else{log(`🔨 No takers — ${t.name} stays with the bank.`);renderAll();}
-  A=null;cb();
+  A=null;
+  if(isMultiplayerActive())broadcastStateNow();
+  if(afterPlayerId!=null){
+    const p=S.players.find(x=>x.id===afterPlayerId);
+    if(p)finishMovePhase(p,afterAgain);
+  }
 }
 
 /* ============================================================
@@ -1525,6 +1738,7 @@ function addOpenTrade(from,to,offerIdx,wantIdx,offerCash,wantCash){
     history:[{round:1,by:from.id,offerIdx:[...offerIdx],wantIdx:[...wantIdx],offerCash,wantCash,text:`${from.name} proposed`}],
   };
   S.openTrades.unshift(trade);
+  if(isMultiplayerActive())broadcastStateNow();
   return trade;
 }
 function counterOpenTrade(trade,by,offerIdx,wantIdx,offerCash,wantCash){
@@ -1543,6 +1757,7 @@ function counterOpenTrade(trade,by,offerIdx,wantIdx,offerCash,wantCash){
     offerIdx:[...offerIdx],wantIdx:[...wantIdx],offerCash,wantCash,
     text:`${by.name} countered`,
   });
+  if(isMultiplayerActive())broadcastStateNow();
 }
 function finalizeOpenTrade(trade){
   const from=S.players[trade.fromId],to=S.players[trade.toId];
@@ -1840,12 +2055,16 @@ function openTradeDetail(id,mode=null){
   const trade=getOpenTrade(id);
   if(!trade)return;
   renderTradeReview(trade,mode);
-  $('tradeReviewModal')?.classList.remove('hidden');
+  $('tradeReviewModal')?.classList.remove('hidden','overlay--minimized');
+  $('tradeRestoreBar')?.classList.add('hidden');
+  updateTradeRestoreBar();
 }
 function closeTradeReview(){
   viewingTradeId=null;
   $('tradeReviewHistory')?.parentElement?.classList.remove('hidden');
   $('tradeReviewModal')?.classList.add('hidden');
+  $('tradeReviewModal')?.classList.remove('overlay--minimized');
+  $('tradeRestoreBar')?.classList.add('hidden');
 }
 function negotiateTrade(tradeId){
   const trade=getOpenTrade(tradeId??viewingTradeId);
@@ -1931,6 +2150,7 @@ function rejectIncomingTrade(){
   trade.history.unshift({round:trade.round,by:to.id,text:`${to.name} declined`});
   log(`<b>${to.name}</b> declines the trade offer from <b>${from.name}</b>.`,to);
   renderAll();
+  if(isMultiplayerActive())broadcastStateNow();
   openTradeDetail(trade.id,'declined');
 }
 function dismissDeclinedTrade(){
@@ -2017,12 +2237,28 @@ $('tradeNegotiate')?.addEventListener('click',()=>negotiateTrade(viewingTradeId)
 $('tradeReviewNegotiate')?.addEventListener('click',()=>negotiateTrade(viewingTradeId));
 $('tradeReviewClose')?.addEventListener('click',closeTradeViewModal);
 $('tradeReviewModal').onclick=e=>{if(e.target.id==='tradeReviewModal')closeTradeViewModal();};
+$('aucMinBtn')?.addEventListener('click',()=>{
+  $('aucModal')?.classList.add('overlay--minimized');
+  updateAucRestoreBar();
+});
+$('aucRestoreBar')?.addEventListener('click',()=>{
+  $('aucModal')?.classList.remove('overlay--minimized');
+  $('aucRestoreBar')?.classList.add('hidden');
+});
+$('tradeReviewMinBtn')?.addEventListener('click',()=>{
+  $('tradeReviewModal')?.classList.add('overlay--minimized');
+  updateTradeRestoreBar();
+});
+$('tradeRestoreBar')?.addEventListener('click',()=>{
+  $('tradeReviewModal')?.classList.remove('overlay--minimized');
+  $('tradeRestoreBar')?.classList.add('hidden');
+});
 $('propModal').onclick=e=>{if(e.target.id==='propModal')closePropDetail();};
 $('manageClose')?.addEventListener('click',()=>$('manageModal')?.classList.add('hidden'));
 function afterAction(toAuction,tile){
   if(isMpGame()&&!isMyTurn())return;
   const again=S.pendingDouble;S.pendingDouble=false;
-  if(toAuction)startAuction(tile,()=>finishMovePhase(S.cur,again));
+  if(toAuction)startAuction(tile,{playerId:S.cur?.id,again});
   else finishMovePhase(S.cur,again);
 }
 

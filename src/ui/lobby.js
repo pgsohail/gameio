@@ -6,9 +6,11 @@ import {
 } from '../lib/auth.js';
 import { connectRoomSocket, getToken, roomLink, roomsApi, subscribeWhenOpen } from '../lib/api.js';
 import {
-  enableMultiplayer, detachMultiplayer, handleSocketMessage, handleDiceRollMessage,
+  enableMultiplayer, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
 } from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
+import { boardName, boardTagline } from '../lib/boards.js';
+import { playPlayerJoin, playPlayerLeave, playBotJoin } from '../lib/sounds.js';
 
 const TOKEN_EMOJI = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
 const RULE_ICONS = [
@@ -38,8 +40,11 @@ let roomSocket = null;
 let roomsPanelOpen = false;
 let rulesSaveTimer = null;
 let gameStarted = false;
+let gamePausedAway = false;
 let wsReconnectTimer = null;
 let lobbyPollTimer = null;
+let prevSlotSnapshot = null;
+let botSoundQueue = 0;
 
 const DIFF_HINTS = {
   relaxed: 'Gentler bots and slower bidding.',
@@ -66,8 +71,7 @@ function esc(s) {
 }
 
 function boardLabel(per) {
-  const m = { 10: 'Classic', 12: 'Grand', 14: 'Huge', 18: 'Max' };
-  return m[per] || 'Custom';
+  return boardName(per);
 }
 
 function ruleIconsHtml(rules) {
@@ -226,7 +230,7 @@ function applyBoardRules(rules, { hostOnly = true, isHost = false } = {}) {
     if (k in rules) inp.checked = !!rules[k];
     inp.disabled = hostOnly && !isHost;
   });
-  document.querySelectorAll('.board-seg .glass-seg__btn').forEach(btn => {
+  document.querySelectorAll('#boardAdvBody .glass-seg__btn').forEach(btn => {
     btn.disabled = hostOnly && !isHost;
   });
   $('boardAdvHostOnly')?.classList.toggle('hidden', isHost);
@@ -268,7 +272,7 @@ function startLobbyPoll(roomId) {
 
 function onRoomSocketMessage(roomId, msg) {
   const u = getUser();
-  if (handleDiceRollMessage(msg, u?.id)) return;
+  if (handleDiceRollMessage(msg)) return;
   if (handleSocketMessage(msg, u?.id)) return;
   if (msg.type === 'room_update' && msg.room?.id === roomId) {
     renderBoardLobby(msg.room);
@@ -341,9 +345,15 @@ function subscribeRoom(roomId) {
 }
 
 function exitBoardLobby() {
+  prevSlotSnapshot = null;
+  botSoundQueue = 0;
+  gamePausedAway = false;
+  updateReturnToGameBtn();
   $('roomLobby')?.classList.add('hidden');
   $('lobby')?.classList.remove('hidden');
   $('hubTop')?.classList.remove('hidden');
+  $('scene')?.classList.remove('hidden');
+  $('hud')?.classList.add('hidden');
   document.body.classList.remove('room-lobby-mode');
   setGameBrandVisible(false);
   stopLobbyPoll();
@@ -360,6 +370,7 @@ function exitBoardLobby() {
 
 function enterBoardLobby(room) {
   currentRoomId = room.id;
+  prevSlotSnapshot = null;
   sessionStorage.removeItem(LOBBY_VIEW_KEY);
   $('hubTop')?.classList.add('hidden');
   $('lobby')?.classList.add('hidden');
@@ -375,16 +386,33 @@ function enterBoardLobby(room) {
   subscribeRoom(room.id);
 }
 
-function renderBoardJoinColors() {
+function takenColorsFromRoom(room) {
+  return (room?.slots || []).filter(Boolean).map(s => s.color);
+}
+
+function pickAvailableColor(preferred, taken) {
+  if (!taken.includes(preferred)) return preferred;
+  return BRIGHT_COLORS.find(c => !taken.includes(c)) || preferred;
+}
+
+function renderBoardJoinColors(room) {
   const sw = $('boardJoinColors');
   if (!sw) return;
+  const taken = takenColorsFromRoom(room);
+  boardJoinColor = pickAvailableColor(boardJoinColor, taken);
   sw.innerHTML = '';
   BRIGHT_COLORS.forEach(c => {
+    const isTaken = taken.includes(c);
     const s = document.createElement('button');
     s.type = 'button';
-    s.className = 'traveler-color' + (c === boardJoinColor ? ' on' : '');
+    s.className = 'traveler-color'
+      + (c === boardJoinColor ? ' on' : '')
+      + (isTaken ? ' traveler-color--taken' : '');
     s.style.background = c;
+    s.disabled = isTaken;
+    s.title = isTaken ? 'Color taken' : '';
     s.onclick = () => {
+      if (isTaken) return;
       sw.querySelectorAll('.traveler-color').forEach(x => x.classList.remove('on'));
       s.classList.add('on');
       boardJoinColor = c;
@@ -395,21 +423,69 @@ function renderBoardJoinColors() {
   $('boardJoinToken')?.style.setProperty('--pc', boardJoinColor);
 }
 
+function snapshotSlots(slots) {
+  return slots.map(s => (s ? `${s.userId}:${s.bot ? 'b' : 'h'}` : ''));
+}
+
+function playLobbySlotSounds(room) {
+  const snap = snapshotSlots(room.slots);
+  if (!prevSlotSnapshot) {
+    prevSlotSnapshot = snap;
+    return;
+  }
+  const u = getUser();
+  let botAdds = 0;
+  for (let i = 0; i < snap.length; i++) {
+    const prev = prevSlotSnapshot[i] || '';
+    const next = snap[i] || '';
+    if (prev === next) continue;
+    if (!prev && next) {
+      const p = room.slots[i];
+      if (p?.bot) botAdds += 1;
+      else if (p?.userId !== u?.id) playPlayerJoin();
+    } else if (prev && !next) {
+      playPlayerLeave();
+    } else if (prev && next && prev !== next) {
+      const p = room.slots[i];
+      if (p?.bot) botAdds += 1;
+      else if (p?.userId !== u?.id) playPlayerJoin();
+      else if (prev && !room.slots[i]?.bot) playPlayerLeave();
+    }
+  }
+  if (botAdds > 0) {
+    for (let j = 0; j < botAdds; j++) {
+      playBotJoin(botSoundQueue * 0.12);
+      botSoundQueue += 1;
+    }
+    setTimeout(() => { botSoundQueue = 0; }, botAdds * 120 + 200);
+  }
+  prevSlotSnapshot = snap;
+}
+
 function renderBoardLobby(room) {
   const u = getUser();
   const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
   const isHost = u && room.hostId === u.id;
   const full = room.slots.every(Boolean);
   const needsJoin = !inRoom && !full;
+  const humans = room.slots.filter(s => s && !s.bot).length;
+  const total = room.slots.filter(Boolean).length;
+  const allowBots = !!room.rules?.allowBots;
+  const minHumans = allowBots ? 1 : 2;
+  const canLaunch = full && total >= 2 && humans >= minHumans;
 
-  $('boardRoomCode').textContent = `Room · ${room.id}`;
+  playLobbySlotSounds(room);
+
+  $('boardRoomCode').textContent = room.id;
+  $('boardWaitCount').textContent = `${humans} human${humans === 1 ? '' : 's'} · ${total}/${room.maxPlayers}`;
   $('boardWaitingSlots').innerHTML = slotAvatars(room.slots, room.maxPlayers);
   $('boardPlayerList').innerHTML = room.slots.filter(Boolean).map(p => `
-    <li class="room-player-item">
+    <li class="room-player-item${p.bot ? ' room-player-item--bot' : ''}">
       <span class="room-player-item__tok" style="--pc:${esc(p.color)}">${p.bot ? '🤖' : p.emoji}</span>
       <span class="room-player-item__meta">
         <span class="room-player-item__name">${esc(p.name)}</span>
         ${p.isHost ? '<span class="room-player-item__badge">Admin</span>' : ''}
+        ${p.bot ? '<span class="room-player-item__badge room-player-item__badge--bot">Bot</span>' : ''}
       </span>
     </li>
   `).join('') || '<li class="room-player-item room-player-item--empty">Waiting for players…</li>';
@@ -420,43 +496,58 @@ function renderBoardLobby(room) {
   $('boardWaitingSlots')?.classList.toggle('hidden', needsJoin);
   $('boardLaunchBtn')?.classList.toggle('hidden', !isHost);
 
-  const humanCount = room.slots.filter(Boolean).length;
-  const canLaunch = full && humanCount >= 2;
   const launchBtn = $('boardLaunchBtn');
   const launchHint = $('boardLaunchHint');
   if (isHost) {
     launchBtn?.toggleAttribute('disabled', !canLaunch || gameStarted);
     launchHint?.classList.toggle('hidden', canLaunch);
     if (launchHint && !canLaunch) {
-      launchHint.textContent = humanCount < 2
-        ? 'Need at least 2 players in the lobby.'
-        : `Waiting for players (${humanCount}/${room.maxPlayers})…`;
+      if (humans < minHumans) {
+        launchHint.textContent = allowBots
+          ? 'Need at least 1 player (bots can fill the rest).'
+          : 'Need at least 2 human players.';
+      } else if (!full) {
+        launchHint.textContent = allowBots
+          ? `Filling seats… ${total}/${room.maxPlayers}`
+          : `Waiting for players (${humans}/${room.maxPlayers})…`;
+      } else {
+        launchHint.textContent = 'Need at least 2 players to start.';
+      }
     }
   } else {
     launchHint?.classList.add('hidden');
   }
 
+  const mapName = boardName(room.rules?.per);
   const title = $('boardWaitTitle');
   const sub = $('boardWaitSub');
   if (needsJoin) {
     if (title) title.textContent = full ? 'Room is full' : 'Join this game';
     if (sub) sub.textContent = full
-      ? 'All seats are taken — you cannot join this game.'
-      : 'Select your token & color';
+      ? 'All seats are taken.'
+      : `${mapName} · pick your token`;
     $('boardJoinBtn')?.toggleAttribute('disabled', full);
-    renderBoardJoinColors();
+    renderBoardJoinColors(room);
   } else if (isHost) {
-    if (title) title.textContent = full ? 'Everyone is here' : 'Waiting for players';
-    if (sub) sub.textContent = full
-      ? 'All seats filled — launch when ready'
-      : `Share the link · ${humanCount}/${room.maxPlayers} joined`;
+    if (title) title.textContent = canLaunch ? 'Ready to launch' : 'Waiting for players';
+    if (sub) sub.textContent = canLaunch
+      ? `${mapName} · all seats filled`
+      : allowBots
+        ? 'Bots fill empty seats · share the invite link'
+        : 'Share the invite link with friends';
   } else {
-    if (title) title.textContent = 'Waiting for host';
-    if (sub) sub.textContent = 'The admin will launch the game';
+    if (title) title.textContent = 'In the lobby';
+    if (sub) sub.textContent = 'Waiting for the admin to launch';
   }
 }
 
 async function createLobbyRoom() {
+  if (gamePausedAway) {
+    alert(gameStarted
+      ? 'You have a game in progress. Tap "Return to game" on the right to continue.'
+      : 'You are still in a room. Tap "Return to room" on the right to go back.');
+    return;
+  }
   const u = await ensureUser();
   if (!u) return;
   try {
@@ -476,6 +567,12 @@ async function createLobbyRoom() {
 }
 
 async function joinRoom(id) {
+  if (gamePausedAway) {
+    alert(gameStarted
+      ? 'You have a game in progress. Tap "Return to game" on the right to continue.'
+      : 'You are still in a room. Tap "Return to room" on the right to go back.');
+    return;
+  }
   const u = await ensureUser();
   if (!u) return;
   id = String(id || '').trim().toLowerCase();
@@ -504,10 +601,14 @@ async function confirmBoardJoin() {
   const u = await ensureUser();
   if (!u) return;
   try {
+    const { room: pre } = await roomsApi.get(currentRoomId);
+    const taken = takenColorsFromRoom(pre);
+    const color = pickAvailableColor(boardJoinColor, taken);
     const { room } = await roomsApi.join(currentRoomId, {
       emoji: boardJoinEmoji,
-      color: boardJoinColor,
+      color,
     });
+    boardJoinColor = color;
     history.replaceState(null, '', roomLink(currentRoomId));
     renderBoardLobby(room);
   } catch (e) {
@@ -521,12 +622,6 @@ async function launchWaitingRoom() {
   if (btn?.disabled) return;
   btn?.setAttribute('disabled', 'true');
   try {
-    const { room } = await roomsApi.get(currentRoomId);
-    const humanCount = room.slots.filter(Boolean).length;
-    if (!room.slots.every(Boolean)) {
-      throw new Error(`Lobby not full yet (${humanCount}/${room.maxPlayers} players).`);
-    }
-    if (humanCount < 2) throw new Error('Need at least 2 players before launching.');
     const payload = await roomsApi.launch(currentRoomId);
     startFromPayload(payload);
   } catch (e) {
@@ -536,6 +631,10 @@ async function launchWaitingRoom() {
 }
 
 async function quickPlayOffline() {
+  if (gamePausedAway && gameStarted) {
+    alert('You have a game in progress. Tap "Return to game" on the right to continue.');
+    return;
+  }
   const u = await ensureUser();
   if (!u) return;
   const rules = gatherRules();
@@ -578,10 +677,11 @@ async function copyBoardLink() {
   try {
     await navigator.clipboard.writeText(link);
     const btn = $('boardCopyLink');
-    if (btn) {
-      const prev = btn.textContent;
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = prev; }, 2000);
+    const lbl = btn?.querySelector('.room-share__copy-label');
+    if (lbl) {
+      const prev = lbl.textContent;
+      lbl.textContent = 'Copied!';
+      setTimeout(() => { lbl.textContent = prev; }, 2000);
     }
   } catch {
     $('boardRoomLink')?.select();
@@ -614,7 +714,10 @@ function bindChipGroup(selector, onPick) {
 
 function updateSizeInfo(statsFn) {
   const el = $('sizeInfo');
-  if (el && statsFn) el.textContent = statsFn(chosenPer);
+  if (!el) return;
+  const tag = boardTagline(chosenPer);
+  const stats = statsFn ? statsFn(chosenPer) : '';
+  el.textContent = tag ? `${boardName(chosenPer)} — ${tag}. ${stats}` : stats;
 }
 
 function showTokGrid(btn, onPick) {
@@ -682,6 +785,7 @@ function syncPrivateHint() {
 
 const ROOM_SESSION_KEY = 'ma_active_room';
 const LOBBY_VIEW_KEY = 'ma_lobby_view';
+const REJOIN_MAX_MS = 45 * 60 * 1000;
 let pendingInviteRoomId = null;
 
 export function setGameBrandVisible(on) {
@@ -689,6 +793,65 @@ export function setGameBrandVisible(on) {
   if (!el) return;
   el.classList.toggle('hidden', !on);
   el.setAttribute('aria-hidden', on ? 'false' : 'true');
+}
+
+function isInRoomLobby() {
+  return !!(currentRoomId && !$('roomLobby')?.classList.contains('hidden'));
+}
+
+function isInActiveSession() {
+  return gameStarted || isInRoomLobby();
+}
+
+function updateReturnToGameBtn() {
+  const btn = $('returnToGameBtn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !gamePausedAway);
+  const label = btn.querySelector('.return-game-btn__label');
+  if (label) {
+    label.textContent = gameStarted ? 'Return to game' : 'Return to room';
+  }
+  btn.setAttribute('aria-label', gameStarted ? 'Return to game' : 'Return to room');
+}
+
+function pauseSessionToHome() {
+  if (!isInActiveSession()) {
+    showView('home');
+    return;
+  }
+  gamePausedAway = true;
+  $('hud')?.classList.add('hidden');
+  $('scene')?.classList.add('hidden');
+  $('roomLobby')?.classList.add('hidden');
+  document.body.classList.remove('room-lobby-mode');
+  setGameBrandVisible(false);
+  $('lobby')?.classList.remove('hidden');
+  $('hubTop')?.classList.remove('hidden');
+  showView('home');
+  updateReturnToGameBtn();
+}
+
+function resumePausedSession() {
+  if (!gamePausedAway) return;
+  gamePausedAway = false;
+  updateReturnToGameBtn();
+  $('lobby')?.classList.add('hidden');
+  $('hubTop')?.classList.add('hidden');
+  $('scene')?.classList.remove('hidden');
+  if (gameStarted) {
+    $('hud')?.classList.remove('hidden');
+    setGameBrandVisible(true);
+  } else if (currentRoomId) {
+    $('roomLobby')?.classList.remove('hidden');
+    document.body.classList.add('room-lobby-mode');
+    setGameBrandVisible(true);
+  }
+}
+
+function handleBrandClick(e) {
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  pauseSessionToHome();
 }
 
 function roomIdFromUrl() {
@@ -727,6 +890,51 @@ async function ensureUserForRoom() {
   }
 }
 
+function wasPlayerInRoom(room, userId) {
+  if (!userId) return false;
+  return room.slots?.some(s => s?.userId === userId)
+    || room.players?.some(p => p.userId === userId);
+}
+
+function canRejoinRoom(room, userId) {
+  if (room.status !== 'playing' || !wasPlayerInRoom(room, userId)) return false;
+  if (Date.now() - (room.updatedAt || 0) > REJOIN_MAX_MS) return false;
+  return true;
+}
+
+async function rejoinActiveGame(room) {
+  const u = getUser();
+  if (!u || !onStartGame) return false;
+  hideInviteCard();
+  gameStarted = true;
+  currentRoomId = room.id;
+  prevSlotSnapshot = null;
+  persistRoomInUrl(room.id);
+  $('lobby')?.classList.add('hidden');
+  $('hubTop')?.classList.add('hidden');
+  $('roomLobby')?.classList.add('hidden');
+  document.body.classList.remove('room-lobby-mode');
+  setGameBrandVisible(true);
+
+  const adminId = room.adminId ?? 0;
+  const humans = (room.players || []).filter(p => !p.bot).length;
+  const players = (room.players || []).map((p, i) => ({
+    userId: p.userId,
+    name: p.userId === u.id ? u.name : p.name,
+    bot: !!p.bot,
+    emoji: p.emoji,
+    color: p.color,
+    isAdmin: i === adminId || p.userId === room.hostId,
+  }));
+
+  subscribeRoom(room.id);
+  onStartGame({ rules: room.rules, players, adminId, multiplayer: humans > 1 });
+  enableMultiplayer(roomSocket, room.id);
+  subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: room.id });
+  if (room.gameState) applyGameState(room.gameState);
+  return true;
+}
+
 async function openInviteRoom() {
   const id = (pendingInviteRoomId || roomIdFromUrl() || sessionStorage.getItem(ROOM_SESSION_KEY) || '').toLowerCase();
   if (!id) return;
@@ -734,11 +942,15 @@ async function openInviteRoom() {
   if (!u) return;
   try {
     const { room } = await roomsApi.get(id);
-    const inRoom = room.slots.some(s => s?.userId === u.id);
-    if (room.status !== 'lobby') {
-      alert('This game already started or ended.');
+    if (canRejoinRoom(room, u.id)) {
+      await rejoinActiveGame(room);
       return;
     }
+    if (room.status !== 'lobby') {
+      alert('This game ended or your session expired (45 min).');
+      return;
+    }
+    const inRoom = room.slots.some(s => s?.userId === u.id);
     if (room.slots.every(Boolean) && !inRoom) {
       alert('This room is full — all player seats are taken.');
       return;
@@ -749,18 +961,24 @@ async function openInviteRoom() {
   }
 }
 
-function showInviteError(id, message, disableEnter = false) {
+function showInviteCard(id, message, { rejoin = false, disableEnter = false } = {}) {
   pendingInviteRoomId = id;
   const idEl = $('roomInviteId');
   if (idEl) idEl.textContent = id;
   const sub = $('roomInviteSub');
   if (sub) sub.textContent = message;
   const enterBtn = $('roomInviteEnter');
+  const label = enterBtn?.querySelector('.home-play__label');
+  if (label) label.textContent = rejoin ? 'Rejoin game' : 'Enter room';
   if (disableEnter) enterBtn?.setAttribute('disabled', '');
   else enterBtn?.removeAttribute('disabled');
   $('roomInviteCard')?.classList.remove('hidden');
   $('lobby')?.classList.remove('hidden');
   showView('home');
+}
+
+function showInviteError(id, message, disableEnter = false) {
+  showInviteCard(id, message, { disableEnter });
 }
 
 async function handleRoomDeepLink() {
@@ -791,8 +1009,12 @@ async function handleRoomDeepLink() {
     const { room } = await roomsApi.get(id);
     const u = getUser();
     const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
+    if (canRejoinRoom(room, u?.id)) {
+      await rejoinActiveGame(room);
+      return true;
+    }
     if (room.status !== 'lobby') {
-      showInviteError(id, 'This game already started or ended.', true);
+      showInviteError(id, 'This game ended or your session expired.', true);
       return false;
     }
     if (room.slots.every(Boolean) && !inRoom) {
@@ -856,7 +1078,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('szRange')?.addEventListener('input', () => {
     chosenPer = +$('szRange').value;
     const lbl = $('szLabel');
-    if (lbl) lbl.textContent = `${chosenPer * 4} tiles`;
+    if (lbl) lbl.textContent = boardName(chosenPer);
     updateSizeInfo(boardStats);
   });
 
@@ -901,7 +1123,21 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     $('publicRoomsSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
   $('lobbyBackCreate')?.addEventListener('click', () => showView('home'));
-  $('boardLeaveBtn')?.addEventListener('click', () => {
+  $('gameBrand')?.addEventListener('click', handleBrandClick);
+  $('returnToGameBtn')?.addEventListener('click', resumePausedSession);
+  document.addEventListener('click', e => {
+    if (e.target.closest('#hubLogo')) handleBrandClick(e);
+  });
+  $('hubTop')?.querySelector('.hub-top__brand')?.addEventListener('click', () => {
+    if (gamePausedAway) return;
+    if (isInActiveSession()) pauseSessionToHome();
+    else showView('home');
+  });
+  $('boardLeaveBtn')?.addEventListener('click', async () => {
+    const rid = currentRoomId;
+    if (rid) {
+      try { await roomsApi.leave(rid); } catch { /* room gone */ }
+    }
     exitBoardLobby();
     showView('home');
     renderRoomList();

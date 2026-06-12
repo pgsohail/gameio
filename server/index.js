@@ -139,7 +139,7 @@ function publicRoomList() {
 }
 
 function roomToClient(room) {
-  return {
+  const base = {
     id: room.id,
     private: room.private,
     status: room.status,
@@ -149,6 +149,55 @@ function roomToClient(room) {
     rules: room.rules,
     updatedAt: room.updatedAt,
   };
+  if (room.status === 'playing') {
+    base.players = room.players;
+    base.adminId = room.adminId ?? 0;
+    base.gameState = room.gameState || null;
+    base.stateSeq = room.stateSeq || 0;
+  }
+  return base;
+}
+
+const BOT_EMOJIS = ['🤖', '🦾', '👾', '🎮', '⚡', '🔮'];
+const BOT_COLORS = ['#78909C', '#607D8B', '#546E7A', '#90A4AE', '#B0BEC5', '#455A64'];
+
+function removeBots(room) {
+  room.slots = room.slots.map(s => (s?.bot ? null : s));
+}
+
+function syncRoomBots(room) {
+  if (!room.rules?.allowBots) {
+    removeBots(room);
+    return;
+  }
+  let n = 1;
+  for (let i = 0; i < room.slots.length; i++) {
+    if (!room.slots[i]) {
+      room.slots[i] = {
+        userId: `bot:${room.id}:${i}`,
+        name: `Bot ${n}`,
+        emoji: BOT_EMOJIS[i % BOT_EMOJIS.length],
+        color: BOT_COLORS[i % BOT_COLORS.length],
+        bot: true,
+        isHost: false,
+      };
+      n += 1;
+    }
+  }
+}
+
+function transferHost(room) {
+  room.slots.forEach(s => { if (s) s.isHost = false; });
+  const nextIdx = room.slots.findIndex(s => s && !s.bot);
+  if (nextIdx < 0) return false;
+  room.hostId = room.slots[nextIdx].userId;
+  room.slots[nextIdx].isHost = true;
+  room.adminSlot = nextIdx;
+  return true;
+}
+
+function humanCount(room) {
+  return room.slots.filter(s => s && !s.bot).length;
 }
 
 function broadcastRoom(roomId) {
@@ -162,9 +211,11 @@ function broadcastRoom(roomId) {
   }
 }
 
-function broadcastDiceRoll(roomId, msg, fromWs) {
+function broadcastDiceRoll(roomId, msg) {
   const subs = roomSubs.get(roomId);
   if (!subs) return;
+  const seq = msg.seq || Date.now();
+  const startAt = Math.max(Date.now() + 60, +(msg.startAt || 0) || Date.now() + 100);
   const payload = JSON.stringify({
     type: 'dice_roll',
     roomId,
@@ -172,18 +223,24 @@ function broadcastDiceRoll(roomId, msg, fromWs) {
     d2: msg.d2,
     rollerName: msg.rollerName,
     rollerUserId: msg.rollerUserId,
-    from: fromWs.userId,
-    seq: msg.seq || Date.now(),
+    startAt,
+    seq,
   });
   for (const ws of subs) {
-    if (ws.readyState === 1 && ws !== fromWs) ws.send(payload);
+    if (ws.readyState === 1) ws.send(payload);
   }
 }
 
 function broadcastGameState(roomId, state, fromWs, fromUserId) {
+  const room = rooms.get(roomId);
+  if (room?.status === 'playing') {
+    room.gameState = state;
+    room.stateSeq = Date.now();
+    room.updatedAt = Date.now();
+  }
   const subs = roomSubs.get(roomId);
   if (!subs) return;
-  const seq = Date.now();
+  const seq = room?.stateSeq || Date.now();
   const payload = JSON.stringify({
     type: 'game_state',
     roomId,
@@ -321,6 +378,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
     bot: false,
     isHost: true,
   };
+  if (room.rules.allowBots) syncRoomBots(room);
   rooms.set(id, room);
   res.json({ room: roomToClient(room) });
 });
@@ -332,15 +390,25 @@ app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   if (room.slots.some(s => s?.userId === req.user.id)) {
     return res.json({ room: roomToClient(room) });
   }
-  const idx = room.slots.findIndex(s => !s);
+  let idx = room.slots.findIndex(s => !s);
+  if (idx < 0 && room.rules?.allowBots) {
+    for (let i = room.slots.length - 1; i >= 0; i--) {
+      if (room.slots[i]?.bot) { idx = i; break; }
+    }
+  }
   if (idx < 0) return res.status(400).json({ error: 'Room full' });
   const emojis = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
   const colors = ['#FF1744', '#F50057', '#651FFF', '#3D5AFE', '#00E5FF', '#00E676', '#FFEA00', '#FF9100'];
+  const taken = room.slots.filter(Boolean).map(s => s.color);
+  let color = req.body?.color || colors[idx % colors.length];
+  if (taken.includes(color)) {
+    color = colors.find(c => !taken.includes(c)) || color;
+  }
   room.slots[idx] = {
     userId: req.user.id,
     name: req.user.name,
     emoji: req.body?.emoji || emojis[idx % emojis.length],
-    color: req.body?.color || colors[idx % colors.length],
+    color,
     bot: false,
     isHost: false,
   };
@@ -355,7 +423,10 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
   const { rules, maxPlayers: maxIn } = req.body || {};
   if (rules && typeof rules === 'object') {
+    const prevBots = !!room.rules.allowBots;
     room.rules = { ...room.rules, ...rules, title: 'Buildup.io' };
+    if (room.rules.allowBots) syncRoomBots(room);
+    else if (prevBots) removeBots(room);
   }
   if (maxIn != null) {
     const max = Math.min(6, Math.max(2, +maxIn));
@@ -363,6 +434,7 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
       const next = Array.from({ length: max }, (_, i) => room.slots[i] ?? null);
       room.slots = next;
       room.maxPlayers = max;
+      if (room.rules?.allowBots) syncRoomBots(room);
     }
   }
   room.updatedAt = Date.now();
@@ -370,11 +442,33 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
   res.json({ room: roomToClient(room) });
 });
 
+app.post('/api/rooms/:id/leave', authMiddleware, (req, res) => {
+  pruneRooms();
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
+  if (!room || room.status !== 'lobby') {
+    return res.json({ left: true, room: null });
+  }
+  const idx = room.slots.findIndex(s => s?.userId === req.user.id);
+  if (idx < 0) return res.json({ room: roomToClient(room), left: true });
+  const wasHost = room.hostId === req.user.id;
+  room.slots[idx] = null;
+  if (wasHost && !transferHost(room)) {
+    rooms.delete(room.id);
+    roomSubs.delete(room.id);
+    return res.json({ left: true, room: null });
+  }
+  if (room.rules?.allowBots) syncRoomBots(room);
+  room.updatedAt = Date.now();
+  broadcastRoom(room.id);
+  res.json({ room: roomToClient(room), left: true });
+});
+
 app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
 
+  if (room.rules?.allowBots) syncRoomBots(room);
   const emptySlots = room.slots.filter(s => !s).length;
   if (emptySlots > 0) {
     const joined = room.slots.filter(Boolean).length;
@@ -388,11 +482,16 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
     name: slot.name,
     emoji: slot.emoji,
     color: slot.color,
-    bot: false,
-    isAdmin: i === (room.adminSlot ?? 0),
+    bot: !!slot.bot,
+    isAdmin: slot.userId === room.hostId,
   }));
 
+  const humans = players.filter(p => !p.bot).length;
   if (players.length < 2) return res.status(400).json({ error: 'Need at least 2 players' });
+  if (humans < 1) return res.status(400).json({ error: 'Need at least 1 human player' });
+  if (!room.rules?.allowBots && humans < 2) {
+    return res.status(400).json({ error: 'Need at least 2 human players (or enable bots)' });
+  }
 
   if (room.rules.randomOrder) {
     for (let i = players.length - 1; i > 0; i--) {
@@ -488,6 +587,14 @@ wss.on('connection', (ws, req) => {
             adminId: room.adminId ?? 0,
             yourUserId: ws.userId,
           }));
+          if (room.gameState) {
+            ws.send(JSON.stringify({
+              type: 'game_state',
+              roomId: room.id,
+              state: room.gameState,
+              seq: room.stateSeq || Date.now(),
+            }));
+          }
         }
       }
     }
@@ -496,7 +603,7 @@ wss.on('connection', (ws, req) => {
       const room = rooms.get(rid);
       if (room?.status === 'playing') {
         room.updatedAt = Date.now();
-        broadcastDiceRoll(rid, msg, ws);
+        broadcastDiceRoll(rid, msg);
       }
     }
     if (msg.type === 'game_state' && msg.roomId && msg.state) {

@@ -48,6 +48,7 @@ export const roomsApi = {
   create: body => api('/api/rooms', { method: 'POST', body: JSON.stringify(body) }),
   join: (id, body = {}) => api(`/api/rooms/${id}/join`, { method: 'POST', body: JSON.stringify(body) }),
   launch: id => api(`/api/rooms/${id}/launch`, { method: 'POST' }),
+  leave: id => api(`/api/rooms/${id}/leave`, { method: 'POST' }),
   update: (id, body) => api(`/api/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };
 

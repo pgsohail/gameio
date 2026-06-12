@@ -159,6 +159,12 @@ export const Dice3D = {
     }
   },
 
+  rollAt(a, b, startAt) {
+    const delay = Math.max(0, (startAt || Date.now()) - Date.now());
+    if (delay < 4) return this.roll(a, b);
+    setTimeout(() => this.roll(a, b), delay);
+  },
+
   roll(a, b) {
     if (rolling || !wrapA || !wrapB) return;
     rolling = true;

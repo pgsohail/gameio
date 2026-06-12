@@ -12,10 +12,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Albert+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-<div id="gameBrand" class="game-brand hidden" aria-hidden="true">
+<button type="button" id="gameBrand" class="game-brand hidden" aria-label="Buildup.io — home" aria-hidden="true">
   <img class="game-brand__icon" src="/logo.svg" width="28" height="28" alt="">
   <span class="game-brand__name">Buildup<span class="game-brand__dot">.io</span></span>
-</div>
+</button>
+
+<button type="button" id="returnToGameBtn" class="return-game-btn hidden" aria-label="Return to game">
+  <span class="return-game-btn__icon" aria-hidden="true">🎲</span>
+  <span class="return-game-btn__label">Return to game</span>
+</button>
 
 <!-- ================= MONOPOLY ADVANCED LOBBY ================= -->
 <div id="lobby">
@@ -147,7 +152,7 @@
     <!-- Create room — split: main + advanced card -->
     <section id="lobbyCreate" class="lobby-create hidden">
       <button type="button" class="lobby-create__back" id="lobbyBackCreate">← Back</button>
-      <div class="create-layout create-layout--stack">
+      <div class="create-layout">
         <div class="create-main">
           <h2 class="lobby-create__title">New game</h2>
           <p class="create-version" id="appBuildTag" aria-hidden="true"></p>
@@ -156,16 +161,16 @@
             <div class="setup-row">
               <span class="setup-row__label">Board</span>
               <div id="sizeChips" class="glass-seg glass-seg--dark">
-                <button class="szchip glass-seg__btn" data-per="10" type="button">40</button>
-                <button class="szchip glass-seg__btn on" data-per="12" type="button">48</button>
-                <button class="szchip glass-seg__btn" data-per="14" type="button">56</button>
-                <button class="szchip glass-seg__btn" data-per="18" type="button">72</button>
+                <button class="szchip glass-seg__btn" data-per="10" type="button">Death Valley</button>
+                <button class="szchip glass-seg__btn on" data-per="12" type="button">Neon Harbor</button>
+                <button class="szchip glass-seg__btn" data-per="14" type="button">Crystal Peaks</button>
+                <button class="szchip glass-seg__btn" data-per="18" type="button">Eclipse Bay</button>
                 <button class="szchip glass-seg__btn" data-per="custom" type="button">···</button>
               </div>
             </div>
             <div id="customSize" class="setup-custom hidden">
               <input type="range" id="szRange" min="10" max="18" step="1" value="12" aria-label="Tiles per side">
-              <b id="szLabel">48 tiles</b>
+              <b id="szLabel">Neon Harbor</b>
             </div>
             <div id="sizeInfo" class="setup-hint"></div>
             <div class="setup-row">
@@ -178,40 +183,6 @@
                 <button class="max-chip glass-seg__btn" data-max="6" type="button">6</button>
               </div>
             </div>
-            <div class="setup-adv-core">
-              <span class="setup-adv-core__title">Game economy</span>
-              <div class="adv-block">
-                <span class="adv-block__label">Difficulty</span>
-                <div class="glass-seg glass-seg--dark glass-seg--adv">
-                  <button class="diff-chip glass-seg__btn" data-val="relaxed" type="button">Relaxed</button>
-                  <button class="diff-chip glass-seg__btn on" data-val="classic" type="button">Classic</button>
-                  <button class="diff-chip glass-seg__btn" data-val="shark" type="button">Shark</button>
-                </div>
-                <p class="adv-block__hint" id="diffHint">Balanced bots and classic pacing.</p>
-              </div>
-              <div class="adv-block">
-                <span class="adv-block__label">Starting cash</span>
-                <div class="glass-seg glass-seg--dark glass-seg--grid glass-seg--adv">
-                  <button class="cash-chip glass-seg__btn" data-val="1500" type="button">$1.5k</button>
-                  <button class="cash-chip glass-seg__btn on" data-val="2000" type="button">$2k</button>
-                  <button class="cash-chip glass-seg__btn" data-val="3000" type="button">$3k</button>
-                  <button class="cash-chip glass-seg__btn" data-val="5000" type="button">$5k</button>
-                  <button class="cash-chip glass-seg__btn" data-val="7500" type="button">$7.5k</button>
-                  <button class="cash-chip glass-seg__btn" data-val="10000" type="button">$10k</button>
-                </div>
-                <p class="adv-block__hint" id="cashHint">$2,000 each. Standard opening bankroll.</p>
-              </div>
-              <div class="adv-block">
-                <span class="adv-block__label">GO salary</span>
-                <div class="glass-seg glass-seg--dark glass-seg--adv">
-                  <button class="salary-chip glass-seg__btn" data-val="200" type="button">$200</button>
-                  <button class="salary-chip glass-seg__btn on" data-val="300" type="button">$300</button>
-                  <button class="salary-chip glass-seg__btn" data-val="400" type="button">$400</button>
-                  <button class="salary-chip glass-seg__btn" data-val="500" type="button">$500</button>
-                </div>
-                <p class="adv-block__hint" id="salaryHint">$300 each time you pass GO.</p>
-              </div>
-            </div>
             <div class="setup-private">
               <label class="glass-toggle glass-toggle--row">
                 <span class="glass-toggle__lbl"><b>Private game</b><small>Invite friends with a link</small></span>
@@ -221,7 +192,47 @@
               <p class="setup-private__note" id="privateCreateHint">You'll wait on the board. Copy the invite link from the left panel.</p>
             </div>
           </div>
-          <section class="create-adv-card create-adv-card--inline">
+          <button type="button" class="home-play lobby-create__go" id="startBtn">
+            <span class="home-play__label">Open lobby</span>
+            <span class="home-play__chev" aria-hidden="true">››</span>
+          </button>
+        </div>
+        <aside class="create-aside">
+          <section class="create-adv-card">
+            <h3 class="create-adv-card__title">Game economy</h3>
+            <div class="adv-block">
+              <span class="adv-block__label">Difficulty</span>
+              <div class="glass-seg glass-seg--dark glass-seg--adv">
+                <button class="diff-chip glass-seg__btn" data-val="relaxed" type="button">Relaxed</button>
+                <button class="diff-chip glass-seg__btn on" data-val="classic" type="button">Classic</button>
+                <button class="diff-chip glass-seg__btn" data-val="shark" type="button">Shark</button>
+              </div>
+              <p class="adv-block__hint" id="diffHint">Balanced bots and classic pacing.</p>
+            </div>
+            <div class="adv-block">
+              <span class="adv-block__label">Starting cash</span>
+              <div class="glass-seg glass-seg--dark glass-seg--grid glass-seg--adv">
+                <button class="cash-chip glass-seg__btn" data-val="1500" type="button">$1.5k</button>
+                <button class="cash-chip glass-seg__btn on" data-val="2000" type="button">$2k</button>
+                <button class="cash-chip glass-seg__btn" data-val="3000" type="button">$3k</button>
+                <button class="cash-chip glass-seg__btn" data-val="5000" type="button">$5k</button>
+                <button class="cash-chip glass-seg__btn" data-val="7500" type="button">$7.5k</button>
+                <button class="cash-chip glass-seg__btn" data-val="10000" type="button">$10k</button>
+              </div>
+              <p class="adv-block__hint" id="cashHint">$2,000 each. Standard opening bankroll.</p>
+            </div>
+            <div class="adv-block">
+              <span class="adv-block__label">GO salary</span>
+              <div class="glass-seg glass-seg--dark glass-seg--adv">
+                <button class="salary-chip glass-seg__btn" data-val="200" type="button">$200</button>
+                <button class="salary-chip glass-seg__btn on" data-val="300" type="button">$300</button>
+                <button class="salary-chip glass-seg__btn" data-val="400" type="button">$400</button>
+                <button class="salary-chip glass-seg__btn" data-val="500" type="button">$500</button>
+              </div>
+              <p class="adv-block__hint" id="salaryHint">$300 each time you pass GO.</p>
+            </div>
+          </section>
+          <section class="create-adv-card create-adv-card--rules">
             <h3 class="create-adv-card__title">Advanced rules</h3>
             <div class="adv-toggles adv-toggles--create">
               <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>×2 sets</b><small>Double rent on a complete color group</small></span><input type="checkbox" id="ruleDouble" checked><i class="glass-toggle__sw"></i></label>
@@ -243,11 +254,7 @@
               <span class="power-preview__chip">🏖️ Pot pull</span>
             </div>
           </section>
-          <button type="button" class="home-play lobby-create__go" id="startBtn">
-            <span class="home-play__label">Open lobby</span>
-            <span class="home-play__chev" aria-hidden="true">››</span>
-          </button>
-        </div>
+        </aside>
       </div>
     </section>
 
@@ -332,24 +339,36 @@
   </div>
 </div>
 
-<!-- Room lobby on board (Richup-style) -->
+<!-- Room lobby on board -->
 <div id="roomLobby" class="room-lobby hidden">
+  <div class="room-lobby__backdrop" aria-hidden="true"></div>
   <aside class="room-lobby__side room-lobby__side--left">
-    <div class="room-glass room-share" id="boardShareBox">
-      <h3 class="room-glass__title">Share this game</h3>
-      <div class="room-share__row">
-        <input class="room-share__input" id="boardRoomLink" type="text" readonly aria-label="Room link">
-        <button type="button" class="room-share__copy" id="boardCopyLink">Copy</button>
+    <div class="room-share" id="boardShareBox">
+      <div class="room-share__head">
+        <span class="room-share__icon" aria-hidden="true">🔗</span>
+        <div class="room-share__copy-block">
+          <h3 class="room-share__title">Invite friends</h3>
+          <p class="room-share__hint">Anyone with the link can join</p>
+        </div>
+      </div>
+      <div class="room-share__link-row">
+        <input class="room-share__input" id="boardRoomLink" type="text" readonly aria-label="Room invite link">
+        <button type="button" class="room-share__copy" id="boardCopyLink">
+          <span class="room-share__copy-label">Copy link</span>
+        </button>
       </div>
     </div>
-    <button type="button" class="room-glass room-leave" id="boardLeaveBtn">← Return to home</button>
+    <button type="button" class="room-leave" id="boardLeaveBtn">← Leave room</button>
   </aside>
 
   <div class="room-lobby__center">
-    <div class="room-modal glass" id="boardCenterModal">
-      <p class="room-modal__eyebrow" id="boardRoomCode">Room · -----</p>
+    <div class="room-modal" id="boardCenterModal">
+      <div class="room-modal__top">
+        <span class="room-modal__code" id="boardRoomCode">-----</span>
+        <span class="room-modal__status" id="boardWaitCount">0 / 4</span>
+      </div>
       <h2 class="room-modal__title" id="boardWaitTitle">Waiting for players</h2>
-      <p class="room-modal__sub" id="boardWaitSub">Pick your token to join</p>
+      <p class="room-modal__sub" id="boardWaitSub">Share the invite link</p>
       <div id="boardJoinPicker" class="board-join hidden">
         <button type="button" class="board-join__token" id="boardJoinToken">🚂</button>
         <div class="board-join__colors" id="boardJoinColors"></div>
@@ -372,12 +391,12 @@
         <h3 class="room-panel__title">Game settings</h3>
         <p class="room-panel__lock hidden" id="boardAdvHostOnly">View only — host can edit</p>
         <div class="adv-block">
-          <span class="adv-block__label">Board</span>
-          <div class="glass-seg glass-seg--dark">
-            <button class="board-sz glass-seg__btn" data-per="10" type="button">40</button>
-            <button class="board-sz glass-seg__btn on" data-per="12" type="button">48</button>
-            <button class="board-sz glass-seg__btn" data-per="14" type="button">56</button>
-            <button class="board-sz glass-seg__btn" data-per="18" type="button">72</button>
+          <span class="adv-block__label">Board map</span>
+          <div class="glass-seg glass-seg--dark glass-seg--boards">
+            <button class="board-sz glass-seg__btn" data-per="10" type="button">Death Valley</button>
+            <button class="board-sz glass-seg__btn on" data-per="12" type="button">Neon Harbor</button>
+            <button class="board-sz glass-seg__btn" data-per="14" type="button">Crystal Peaks</button>
+            <button class="board-sz glass-seg__btn" data-per="18" type="button">Eclipse Bay</button>
           </div>
         </div>
         <div class="adv-block">
@@ -424,6 +443,26 @@
 <div id="hud" class="hidden">
     <div id="hudRight">
       <div id="playersCard" class="glass"></div>
+      <div id="playerActionsCard" class="glass player-actions-card hidden">
+        <div class="hud-card-head">
+          <span class="hud-card-icon" aria-hidden="true">⏱️</span>
+          <h4 class="player-actions-title">Turn timer</h4>
+        </div>
+        <div class="turn-timer" id="turnTimer">
+          <span class="turn-timer__ring" id="turnTimerRing"></span>
+          <span class="turn-timer__value" id="turnTimerVal">1:30</span>
+        </div>
+        <p class="turn-timer__hint" id="turnTimerHint">Waiting for roll…</p>
+        <div class="player-actions-btns">
+          <button type="button" class="vote-kick-btn hidden" id="voteKickBtn">
+            <span aria-hidden="true">🗳️</span> Vote kick
+          </button>
+          <button type="button" class="action-bankrupt-btn" id="bankruptBtn">
+            <span aria-hidden="true">💸</span> Bankrupt
+          </button>
+        </div>
+        <p class="vote-kick-status hidden" id="voteKickStatus"></p>
+      </div>
       <div id="tradeCard" class="glass hidden">
         <div class="hud-card-head hud-card-head--trade">
           <span class="hud-card-icon" aria-hidden="true">🤝</span>
@@ -505,8 +544,14 @@
 
   <div class="overlay hidden" id="propModal"><div class="modal"><div class="prop-card" id="propCardBody"></div></div></div>
 
+<button type="button" class="modal-restore-bar hidden" id="aucRestoreBar">🔨 Auction in progress — tap to open</button>
+<button type="button" class="modal-restore-bar hidden" id="tradeRestoreBar">🤝 Trade offer — tap to review</button>
+
 <div class="overlay hidden" id="aucModal"><div class="modal auc-sheet">
-    <div class="auc-top"><span class="auc-chip">🔨 Live auction</span></div>
+    <div class="auc-top">
+      <span class="auc-chip">🔨 Live auction</span>
+      <button type="button" class="modal-min-btn" id="aucMinBtn" title="Minimize">Minimize</button>
+    </div>
     <div class="auc-hero" id="aucPropHead"></div>
     <div class="auc-bid-stage">
       <div class="auc-bid-ring">
@@ -585,8 +630,11 @@
 
   <div class="overlay hidden" id="tradeReviewModal"><div class="modal trade-review">
     <div class="trade-review-head">
-      <span class="trade-review-eyebrow" id="tradeReviewEyebrow">Incoming offer</span>
-      <h2 id="tradeReviewTitle">Review trade</h2>
+      <div class="trade-review-head__text">
+        <span class="trade-review-eyebrow" id="tradeReviewEyebrow">Incoming offer</span>
+        <h2 id="tradeReviewTitle">Review trade</h2>
+      </div>
+      <button type="button" class="modal-min-btn" id="tradeReviewMinBtn" title="Minimize">Minimize</button>
     </div>
     <div class="trade-review-parties" id="tradeReviewParties"></div>
     <div class="trade-review-history-wrap">
