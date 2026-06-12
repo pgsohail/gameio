@@ -14,7 +14,7 @@ import {
   playBuildAnimation, playCountryMonopolyAnim, playDestroyAnimationSync, playJailArrest, playPurchaseGlow,
   playTileCashFx, playTradeSuccessAnim, positionPropDock, renderTileBuildings,
 } from '../ui/buildAnim.js';
-import { initLobby, playAgainAfterGame, setGameBrandVisible } from '../ui/lobby.js';
+import { setGameBrandVisible } from '../lib/gameShell.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import { getUser } from '../lib/auth.js';
 import {
@@ -92,7 +92,7 @@ function genBoard(per){
   });
   return slots;
 }
-function boardStats(per){
+export function boardStats(per){
   const b=genBoard(per);
   const cities=b.filter(t=>t.type==='city').length;
   const countries=new Set(b.filter(t=>t.type==='city').map(t=>t.group)).size;
@@ -369,7 +369,7 @@ function assertMyTurn() {
   return isMyTurn();
 }
 
-function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }) {
+export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }) {
   try {
     ensureBotsReady();
     const per = rules.per;
@@ -432,9 +432,14 @@ function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }
   }
 }
 
-initLobby(startGameFromLobby, boardStats, per => {
+export function previewBoard(per) {
   initBoard(per, { preview: true });
-});
+}
+
+let playAgainHandler = async () => {};
+export function registerPlayAgainHandler(fn) {
+  playAgainHandler = fn;
+}
 
 /* ============================================================
    BOARD BUILD
@@ -599,10 +604,14 @@ function renderAll(){
   renderPot();
   if (isMultiplayerActive() && !isApplyingRemote()) queueStateBroadcast();
 }
-function localHuman(){
+function localHumanPlayer(){
   const uid=getUser()?.id;
-  if(uid)return S.players.find(p=>!p.bot&&!p.dead&&p.userId===uid);
-  return S.players.find(p=>!p.bot&&!p.dead);
+  if(uid)return S.players.find(p=>!p.bot&&p.userId===uid);
+  return S.players.find(p=>!p.bot);
+}
+function localHuman(){
+  const p=localHumanPlayer();
+  return p&&!p.dead?p:null;
 }
 function turnMsg(p){
   const me=localHuman();
@@ -728,7 +737,7 @@ function castVoteKick(){
 function renderActionsCard(){
   const card=$('playerActionsCard');
   if(!card)return;
-  const human=localHuman();
+  const human=localHumanPlayer();
   const showCard=!!human&&!S.over;
   card.classList.toggle('hidden',!showCard);
   if(!showCard)return;
@@ -1328,7 +1337,7 @@ function showGameOverModal(winner){
       }
     }catch{/* cancelled */}
   };
-  $('winPlayAgainBtn').onclick=()=>playAgainAfterGame();
+  $('winPlayAgainBtn').onclick=()=>playAgainHandler();
   $('winModal')?.classList.remove('hidden');
   playGameOverWin();
 }

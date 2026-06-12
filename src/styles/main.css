@@ -1427,6 +1427,20 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   border:1px solid rgba(255,255,255,.25);
   box-shadow:0 3px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.3);
 }
+.hub-dock .btn#rollBtn,
+.hub-dock .btn#endBtn{
+  padding:18px 38px;
+  font-size:clamp(15px,2.5vw,19px);
+  min-width:clamp(168px,26vw,220px);
+  border-radius:14px;
+}
+.hub-dock .btn#auctionBtn,
+.hub-dock--buy .btn#auctionBtn{
+  padding:18px 34px;
+  font-size:clamp(15px,2.4vw,18px);
+  min-width:clamp(158px,24vw,205px);
+  border-radius:14px;
+}
 
 /* ====================== GLASS HUD ====================== */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:40}
@@ -3589,6 +3603,8 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   #playersCard{max-width:calc(100vw - 28px);min-width:200px}
   .hub-dock .btn{padding:11px 18px;font-size:13px;min-width:110px}
   .hub-dock .btn.ghost{padding:11px 16px;font-size:12.5px;min-width:90px}
+  .hub-dock .btn#rollBtn,.hub-dock .btn#endBtn{padding:15px 28px;font-size:15px;min-width:140px}
+  .hub-dock .btn#auctionBtn,.hub-dock--buy .btn#auctionBtn{padding:15px 26px;font-size:14.5px;min-width:130px}
   #hudRight{width:min(280px,86vw);min-width:200px}
   #diceLayer{min-height:120px;--die:clamp(56px,14vw,72px)}
   .dice-stage{height:min(200px,38vw)}

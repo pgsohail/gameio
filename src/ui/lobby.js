@@ -13,6 +13,7 @@ import {
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 import { boardName, boardTagline } from '../lib/boards.js';
 import { playPlayerJoin, playPlayerLeave, playBotJoin } from '../lib/sounds.js';
+import { setGameBrandVisible } from '../lib/gameShell.js';
 
 const TOKEN_EMOJI = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
 const RULE_ICONS = [
@@ -878,6 +879,8 @@ function resetGameSession() {
   updateReturnToGameBtn();
 }
 
+export { setGameBrandVisible } from '../lib/gameShell.js';
+
 async function onPlayerLeftGame() {
   if (!gameStarted) return;
   const rid = currentRoomId;
@@ -927,13 +930,6 @@ export async function playAgainAfterGame() {
   $('lobby')?.classList.remove('hidden');
   $('hubTop')?.classList.remove('hidden');
   showView('home');
-}
-
-export function setGameBrandVisible(on) {
-  const el = $('gameBrand');
-  if (!el) return;
-  el.classList.toggle('hidden', !on);
-  el.setAttribute('aria-hidden', on ? 'false' : 'true');
 }
 
 function isInRoomLobby() {
