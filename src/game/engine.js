@@ -1,6 +1,6 @@
 import { countriesForBoard, AIRPORTS, UTILITIES, GROUP_PALETTE } from '../data/countries.js';
 import { POWER_DRAW_CHANCE, pickRandomPowerCard, powerCardById } from '../data/powerCards.js';
-import { flagModalHTML, flagSrc } from '../lib/flags.js';
+import { flagModalHTML, flagSrc, flagTileHTML } from '../lib/flags.js';
 import { fmt, rand, shuffle, $ } from '../lib/format.js';
 import { rollDie, rollDicePair } from '../lib/random.js';
 import { buildTileParts, tileIcon as tileIconHTML } from '../ui/tiles.js';
@@ -648,6 +648,20 @@ function renderPlayers(){
   }).join('');
   wrap.innerHTML=`<div class="hud-card-head"><span class="hud-card-icon" aria-hidden="true">👥</span><h4 class="players-title">Travelers</h4></div><div class="players-list">${rows}</div>`;
 }
+function portfolioBuildBadge(p,t){
+  if(t.type==='air')return'<span class="portfolio-tag">✈</span>';
+  if(t.type==='utl')return'<span class="portfolio-tag">⚡</span>';
+  if(t.mortgaged)return'<span class="portfolio-tag portfolio-tag--lock">🔒</span>';
+  const houses=t.houses||0;
+  if(houses>=5)return'<span class="portfolio-tag portfolio-tag--hotel">🏨</span>';
+  const canBuild=t.type==='city'&&ownsGroup(p,t.group);
+  const houseTag=houses>0?`<span class="portfolio-tag portfolio-tag--houses">${houses}🏠</span>`:'';
+  if(canBuild){
+    const ok=p.cash>=t.houseCost;
+    return`${houseTag}<span class="portfolio-tag portfolio-tag--build${ok?'':' portfolio-tag--short'}">🏗 ${fmt(t.houseCost)}</span>`;
+  }
+  return houseTag;
+}
 function renderPortfolioCard(){
   const card=$('portfolioCard');
   if(!card)return;
@@ -655,33 +669,33 @@ function renderPortfolioCard(){
   const show=!!p&&!S.over;
   card.classList.toggle('hidden',!show);
   if(!show)return;
-  const av=$('portfolioAv');
-  const nameEl=$('portfolioName');
+  const countEl=$('portfolioCount');
   const netEl=$('portfolioNet');
   const cashEl=$('portfolioCash');
   const list=$('portfolioList');
-  if(av){av.textContent=p.emoji;av.style.setProperty('--pc',p.color);}
-  if(nameEl)nameEl.textContent=p.dead?'Out of game':p.name;
-  if(netEl)netEl.textContent=fmt(netWorth(p));
-  if(cashEl)cashEl.textContent=fmt(p.cash);
-  if(!list)return;
   const tiles=ownedBy(p).slice().sort((a,b)=>{
     const ga=a.group||'',gb=b.group||'';
     return ga.localeCompare(gb)||a.name.localeCompare(b.name);
   });
+  if(countEl)countEl.textContent=String(tiles.length);
+  if(netEl)netEl.textContent=fmt(netWorth(p));
+  if(cashEl)cashEl.textContent=`${fmt(p.cash)} cash`;
+  if(!list)return;
   if(!tiles.length){
-    list.innerHTML='<li class="portfolio-empty">No properties yet</li>';
+    list.innerHTML='<li class="portfolio-empty">No properties yet — roll and buy!</li>';
     return;
   }
   list.innerHTML=tiles.map(t=>{
-    const grp=GROUPS[t.group]?.color||p.color;
-    const houses=t.houses?`<span class="portfolio-houses">${t.houses===5?'🏨':t.houses+'🏠'}</span>`:'';
-    const mort=t.mortgaged?'<span class="portfolio-mort">🔒</span>':'';
-    const label=t.name.length>16?t.name.slice(0,15)+'…':t.name;
-    return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" style="--pc:${grp}" data-idx="${t.idx}" role="button" tabindex="0">
-      <span class="portfolio-dot"></span>
-      <span class="portfolio-item__name">${label}</span>
-      ${houses}${mort}
+    const iso=t.iso||GROUPS[t.group]?.iso;
+    const flag=iso?flagTileHTML(iso,20):`<span class="portfolio-flag-fallback">${GROUPS[t.group]?.flag||'🌐'}</span>`;
+    const label=t.name.length>22?t.name.slice(0,21)+'…':t.name;
+    const build=portfolioBuildBadge(p,t);
+    return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" data-idx="${t.idx}" role="button" tabindex="0">
+      <span class="portfolio-flag">${flag}</span>
+      <span class="portfolio-item__main">
+        <span class="portfolio-item__name">${label}</span>
+        ${build?`<span class="portfolio-item__meta">${build}</span>`:''}
+      </span>
     </li>`;
   }).join('');
   list.querySelectorAll('.portfolio-item').forEach(el=>{
