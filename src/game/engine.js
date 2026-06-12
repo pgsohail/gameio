@@ -480,7 +480,8 @@ const DOCK_HTML=`<button class="btn" id="rollBtn">🎲 Roll Dice</button>
 <button class="btn" id="jailPayBtn">Pay $100 fine</button>
 <button class="btn ghost" id="jailCardBtn">Use jail card</button>
 <button class="btn hidden" id="settleDebtBtn" type="button">Pay debt</button>
-<button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>`;
+<button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>
+<button class="btn ghost hub-bankrupt-btn hidden" id="bankruptDockBtn" type="button">💸 Bankrupt</button>`;
 
 function bindDockWires(){
   if(!$('rollBtn'))return;
@@ -498,6 +499,7 @@ function bindDockWires(){
   $('settleDebtBtn').onclick=()=>{const p=localHuman();if(p)settleDebt(p);};
   $('jailPayBtn').onclick=()=>payJailFine(S.cur);
   $('jailCardBtn').onclick=()=>useJailCard(S.cur);
+  $('bankruptDockBtn').onclick=()=>voluntaryBankrupt(localHuman());
 }
 
 function mountHubDock(){
@@ -845,9 +847,13 @@ function renderActionsCard(){
     }else status.classList.add('hidden');
   }
   $('bankruptBtn')?.classList.toggle('hidden',!alive);
+  $('bankruptBtn')?.classList.toggle('action-bankrupt-btn--urgent',!!(alive&&human.debt));
   const showLeave=!!human&&!S.over;
   $('leaveGameBtn')?.classList.toggle('hidden',!showLeave);
   $('hudLeaveMiniBtn')?.classList.add('hidden');
+  const showBankruptDock=!!human&&!human.dead&&!S.over;
+  $('bankruptDockBtn')?.classList.toggle('hidden',!showBankruptDock);
+  $('bankruptDockBtn')?.classList.toggle('hub-bankrupt-btn--urgent',!!(showBankruptDock&&human.debt));
 }
 function ensureTurnTimer(){
   if(turnTimerInterval)return;
@@ -942,7 +948,11 @@ function renderDock(){
   show('powerCardsBtn',canPower);
   const pcb=$('powerCardsBtn');
   if(pcb&&canPower)pcb.textContent=`🃏 Power cards (${human.powerCards.length})`;
-  if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn'].forEach(id=>{const el=$(id);if(el)el.classList.add('hidden');});
+  const lp=localHumanPlayer();
+  show('bankruptDockBtn',!!lp&&!lp.dead&&!S.over);
+  const bdb=$('bankruptDockBtn');
+  if(bdb)bdb.classList.toggle('hub-bankrupt-btn--urgent',!!(lp&&!lp.dead&&lp.debt));
+  if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn','bankruptDockBtn'].forEach(id=>{const el=$(id);if(el)el.classList.add('hidden');});
 }
 function tradeTileSummary(idxs,cash){
   const parts=idxs.map(i=>TILES[i]?.name).filter(Boolean);
@@ -1670,13 +1680,16 @@ function awardPowerCard(p,deck,again){
   $('powerAwardDesc').textContent=def.desc;
   $('powerAwardModal').classList.remove('hidden');
   log(`🃏 <b>${p.name}</b> uncovers a rare <b>${def.name}</b> ${def.emoji} from ${deck==='fortune'?'Surprise':'Treasure'}!`,p);
-  const done=()=>{
+  let done=false;
+  const finish=()=>{
+    if(done)return;
+    done=true;
     $('powerAwardModal').classList.add('hidden');
     renderAll();
     if(!S.over)finishMovePhase(p,again);
   };
-  $('powerAwardOk').onclick=done;
-  if(p.bot)setTimeout(done,1600);
+  bindTapDismiss('powerAwardModal',finish);
+  if(p.bot)setTimeout(finish,1600);
 }
 function canPlayPowerNow(p){
   return S.rules.powerCards&&!p.bot&&!p.dead&&S.cur.id===p.id&&(S.phase==='roll'||S.phase==='end');
@@ -1830,6 +1843,13 @@ $('powerTargetCancel')?.addEventListener('click',()=>{
 });
 
 /* ---------- cards ---------- */
+function bindTapDismiss(modalId,onDismiss){
+  const modal=$(modalId);
+  if(!modal)return;
+  modal.onclick=()=>{
+    if(!modal.classList.contains('hidden'))onDismiss();
+  };
+}
 function drawCard(p,deck,again){
   if(S.rules.powerCards&&Math.random()<POWER_DRAW_CHANCE){
     awardPowerCard(p,deck,again);
@@ -1837,13 +1857,17 @@ function drawCard(p,deck,again){
   }
   const pile=deck==='fortune'?S.fortune:S.treasury;
   const card=pile.shift();pile.push(card);
-  const body=$('drawCardBody');body.className='drawcard '+deck;
+  const body=$('drawCardBody');
+  body.className='card-sheet card-sheet--'+deck;
   $('dcTitle').textContent=deck==='fortune'?'Surprise':'Treasure';
   $('dcIcon').textContent=deck==='fortune'?'❓':'🧰';
   $('dcText').textContent=card.x;
   $('cardModal').classList.remove('hidden');
   log(`${deck==='fortune'?'❓':'🧰'} <b>${p.name}</b> draws: <i>${card.x}</i>`,p);
+  let done=false;
   const apply=()=>{
+    if(done)return;
+    done=true;
     $('cardModal').classList.add('hidden');
     const before=p.pos,beforeJail=p.jail;
     card.f({cur:p});renderAll();
@@ -1851,7 +1875,7 @@ function drawCard(p,deck,again){
     if(!moved&&!S.over)finishMovePhase(p,again);
     else if(p.jail&&!beforeJail)finishMovePhase(p,false);
   };
-  $('dcOk').onclick=apply;
+  bindTapDismiss('cardModal',apply);
   if(p.bot)setTimeout(apply,1700);
 }
 

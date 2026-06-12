@@ -72,3 +72,10 @@ export function playGameOverWin() {
   tone(784, { duration: 0.25, gain: 0.08, delay: 0.3 });
   tone(1047, { duration: 0.4, gain: 0.09, delay: 0.45 });
 }
+
+/** Simple two-tap dice roll — light and clean. */
+export function playDiceRoll() {
+  tone(520, { duration: 0.05, type: 'triangle', gain: 0.045 });
+  tone(380, { duration: 0.07, type: 'triangle', gain: 0.035, delay: 0.08 });
+  tone(300, { duration: 0.09, type: 'triangle', gain: 0.025, delay: 0.16 });
+}

@@ -2491,19 +2491,68 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
 
 /* ====================== MODALS ====================== */
+.overlay--sheet{
+  background:rgba(10,8,16,.52);backdrop-filter:blur(6px);
+  cursor:pointer;
+}
+.card-sheet{
+  pointer-events:none;
+  width:min(320px,88vw);padding:28px 24px 22px;border-radius:18px;
+  text-align:center;
+  background:linear-gradient(168deg,rgba(38,34,52,.97),rgba(24,22,34,.99));
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 24px 60px rgba(0,0,0,.55);
+  animation:cardSheetIn .28s ease;
+}
+@keyframes cardSheetIn{
+  from{opacity:0;transform:translateY(10px) scale(.97)}
+  to{opacity:1;transform:none}
+}
+.card-sheet__eyebrow{
+  display:block;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:rgba(255,255,255,.45);margin-bottom:10px;
+}
+.card-sheet__icon{
+  display:block;font-size:36px;line-height:1;margin:0 0 14px;
+}
+.card-sheet__title{
+  margin:0 0 8px;font-size:17px;font-weight:800;color:#fff;letter-spacing:.02em;
+}
+.card-sheet__text{
+  margin:0;font-size:14px;line-height:1.55;color:rgba(255,255,255,.82);font-weight:500;
+}
+.card-sheet__hint{
+  display:block;margin-top:18px;font-size:10px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:rgba(255,255,255,.32);
+}
+.card-sheet--fortune .card-sheet__eyebrow{color:rgba(240,169,232,.75)}
+.card-sheet--fortune .card-sheet__icon{filter:drop-shadow(0 0 12px rgba(240,169,232,.25))}
+.card-sheet--treasury .card-sheet__eyebrow{color:rgba(252,211,77,.75)}
+.card-sheet--treasury .card-sheet__icon{filter:drop-shadow(0 0 12px rgba(252,211,77,.2))}
+.card-sheet--power .card-sheet__eyebrow{color:rgba(180,150,255,.75)}
+.hub-bankrupt-btn{
+  font-size:12px!important;padding:10px 16px!important;min-width:0!important;
+  color:rgba(255,200,200,.88)!important;
+  border-color:rgba(248,113,113,.28)!important;
+  background:rgba(60,20,24,.35)!important;
+}
+.hub-bankrupt-btn--urgent{
+  border-color:rgba(248,113,113,.55)!important;
+  box-shadow:0 0 16px rgba(248,113,113,.2)!important;
+  animation:bankruptPulse 2s ease-in-out infinite;
+}
+.action-bankrupt-btn--urgent{
+  border-color:rgba(248,113,113,.55)!important;
+  box-shadow:0 0 12px rgba(248,113,113,.18)!important;
+}
+@keyframes bankruptPulse{
+  0%,100%{box-shadow:0 0 12px rgba(248,113,113,.15)}
+  50%{box-shadow:0 0 20px rgba(248,113,113,.35)}
+}
 .overlay{position:fixed;inset:0;background:rgba(28,24,38,.52);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:100;animation:fadein .25s}
 .modal{border-radius:20px;padding:24px;max-width:540px;width:92%;max-height:88vh;overflow-y:auto;background:linear-gradient(168deg,rgba(92,86,112,.96),rgba(72,68,92,.98));backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.2);box-shadow:0 40px 100px -20px rgba(0,0,0,.55)}
 .modal h2{font-family:'Marcellus',serif;font-weight:400;letter-spacing:.08em;font-size:21px;color:var(--gold);margin-bottom:13px}
 
-#cardModal .modal{max-width:350px;text-align:center;padding:0;overflow:hidden}
-.drawcard{padding:28px 26px 22px}
-.drawcard .ct{font-family:'Marcellus',serif;letter-spacing:.3em;font-size:12px;text-transform:uppercase;margin-bottom:4px}
-.drawcard .ci{font-size:42px;margin:8px 0 12px}
-.drawcard .cx{font-size:15.5px;line-height:1.55}
-.drawcard.fortune{background:linear-gradient(170deg,rgba(170,70,200,.45),rgba(88,48,118,.55))}.drawcard.fortune .ct{color:#F0A9E8}
-.drawcard.treasury{background:linear-gradient(170deg,rgba(220,150,50,.42),rgba(120,80,28,.5))}.drawcard.treasury .ct{color:var(--gold-bright)}
-#cardModal .modal{background:linear-gradient(168deg,rgba(92,86,112,.96),rgba(72,68,92,.98));border:1px solid rgba(255,255,255,.2)}
-#cardModal .btn{margin:16px auto 20px}
 
 .mprop{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.05);border:1px solid var(--gborder);border-radius:12px;padding:9px 11px;margin-bottom:7px}
 .mprop .fc{width:26px;height:26px}.mprop .fc span{font-size:34px}

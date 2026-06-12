@@ -474,7 +474,7 @@
             <div class="player-actions-btns player-actions-btns--compact">
               <button type="button" class="vote-kick-btn vote-kick-btn--compact hidden" id="voteKickBtn">🗳️ Kick</button>
               <button type="button" class="action-leave-btn action-leave-btn--compact" id="leaveGameBtn">Leave</button>
-              <button type="button" class="action-bankrupt-btn action-bankrupt-btn--compact" id="bankruptBtn">Out</button>
+              <button type="button" class="action-bankrupt-btn action-bankrupt-btn--compact" id="bankruptBtn">Bankrupt</button>
             </div>
             <p class="vote-kick-status vote-kick-status--compact hidden" id="voteKickStatus"></p>
           </div>
@@ -516,23 +516,28 @@
     <button class="btn ghost" id="jailCardBtn">Use jail card</button>
     <button class="btn hidden" id="settleDebtBtn" type="button">Pay debt</button>
     <button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>
+    <button class="btn ghost hub-bankrupt-btn hidden" id="bankruptDockBtn" type="button">💸 Bankrupt</button>
   </div>
 </div>
 
-<div class="overlay hidden" id="cardModal"><div class="modal">
-  <div class="drawcard" id="drawCardBody"><div class="ct" id="dcTitle"></div><div class="ci" id="dcIcon"></div><div class="cx" id="dcText"></div></div>
-  <button class="btn" id="dcOk">Continue</button>
-</div></div>
-
-<div class="overlay hidden" id="powerAwardModal"><div class="modal power-modal">
-  <div class="power-award">
-    <span class="power-award__badge">Rare find</span>
-    <div class="power-award__icon" id="powerAwardIcon">🃏</div>
-    <h2 id="powerAwardName">Power card</h2>
-    <p id="powerAwardDesc"></p>
+<div class="overlay overlay--sheet hidden" id="cardModal">
+  <div class="card-sheet" id="drawCardBody">
+    <span class="card-sheet__eyebrow" id="dcTitle">Surprise</span>
+    <span class="card-sheet__icon" id="dcIcon" aria-hidden="true">❓</span>
+    <p class="card-sheet__text" id="dcText"></p>
+    <span class="card-sheet__hint">Tap anywhere to continue</span>
   </div>
-  <button class="btn vio" id="powerAwardOk" type="button">Add to hand</button>
-</div></div>
+</div>
+
+<div class="overlay overlay--sheet hidden" id="powerAwardModal">
+  <div class="card-sheet card-sheet--power">
+    <span class="card-sheet__eyebrow">Rare find</span>
+    <span class="card-sheet__icon" id="powerAwardIcon" aria-hidden="true">🃏</span>
+    <h3 class="card-sheet__title" id="powerAwardName">Power card</h3>
+    <p class="card-sheet__text" id="powerAwardDesc"></p>
+    <span class="card-sheet__hint">Tap anywhere to continue</span>
+  </div>
+</div>
 
 <div class="overlay hidden" id="powerCardsModal"><div class="modal power-modal power-modal--hand">
   <div class="power-hand-head">
