@@ -1036,53 +1036,48 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .tile-cash-fx{
   position:absolute;left:50%;top:50%;z-index:60;pointer-events:none;
   transform:translate(-50%,-50%);
-  width:max-content;max-width:calc(100% + 24px);
-  animation:tileCashFloat 1.75s cubic-bezier(.2,.88,.28,1) forwards;
+  width:max-content;max-width:calc(100% + 16px);
+  animation:tileCashFloat 1.15s ease-out forwards;
 }
 .tile-cash-fx__pill{
   display:inline-block;
   font-family:var(--tile-font);
-  font-size:clamp(16px,calc(var(--edge)*.52),28px);
-  font-weight:400;letter-spacing:.04em;white-space:nowrap;line-height:1;
-  padding:clamp(4px,calc(var(--edge)*.08),8px) clamp(8px,calc(var(--edge)*.14),14px);
-  border-radius:10px;
-  border:2px solid rgba(255,255,255,.45);
-  background:rgba(8,6,14,.88);
-  box-shadow:0 4px 16px rgba(0,0,0,.65),0 0 20px rgba(0,0,0,.4);
-  text-shadow:0 2px 6px rgba(0,0,0,.8);
+  font-size:clamp(11px,calc(var(--edge)*.34),16px);
+  font-weight:700;letter-spacing:.02em;white-space:nowrap;line-height:1;
+  padding:3px 7px;border-radius:6px;
+  border:1px solid rgba(255,255,255,.22);
+  background:rgba(8,6,14,.78);
+  box-shadow:0 2px 8px rgba(0,0,0,.45);
+  text-shadow:none;
 }
 .tile.corner .tile-cash-fx__pill{
-  font-size:clamp(14px,calc(var(--corner)*.2),24px);
-  padding:clamp(5px,calc(var(--corner)*.06),9px) clamp(9px,calc(var(--corner)*.1),15px);
+  font-size:clamp(10px,calc(var(--corner)*.14),14px);
+  padding:3px 6px;
 }
 .tile-cash-fx--pay .tile-cash-fx__pill{
-  color:#fff;
-  border-color:color-mix(in srgb,var(--fx-color,#ff5050) 70%,#fff);
-  background:linear-gradient(180deg,rgba(120,20,20,.92),rgba(60,8,8,.95));
-  box-shadow:0 4px 18px rgba(0,0,0,.7),0 0 24px color-mix(in srgb,var(--fx-color,#ff5050) 55%,transparent);
+  color:#fecaca;
+  border-color:rgba(248,113,113,.35);
+  background:rgba(40,12,12,.82);
 }
 .tile-cash-fx--gain .tile-cash-fx__pill{
-  color:#fff;
-  border-color:color-mix(in srgb,var(--fx-color,#50e090) 70%,#fff);
-  background:linear-gradient(180deg,rgba(16,80,40,.92),rgba(8,40,24,.95));
-  box-shadow:0 4px 18px rgba(0,0,0,.7),0 0 24px color-mix(in srgb,var(--fx-color,#50e090) 50%,transparent);
+  color:#a7f3d0;
+  border-color:rgba(52,211,153,.35);
+  background:rgba(10,32,24,.82);
 }
-.tile-cash-fx--pay{transform:translate(-50%,-42%)}
-.tile-cash-fx--gain{transform:translate(-50%,-62%)}
+.tile-cash-fx--pay{transform:translate(-50%,-46%)}
+.tile-cash-fx--gain{transform:translate(-50%,-58%)}
 @keyframes tileCashFloat{
-  0%{opacity:0;transform:translate(-50%,-35%) scale(.5)}
-  10%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}
-  20%{transform:translate(-50%,-54%) scale(1)}
-  80%{opacity:1;transform:translate(-50%,-72%) scale(1)}
-  100%{opacity:0;transform:translate(-50%,-95%) scale(.95)}
+  0%{opacity:0;transform:translate(-50%,-42%) scale(.92)}
+  12%{opacity:1;transform:translate(-50%,-52%) scale(1)}
+  75%{opacity:.9;transform:translate(-50%,-64%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-72%) scale(.96)}
 }
 .tile-cash-fx--gain{animation-name:tileCashFloatGain}
 @keyframes tileCashFloatGain{
-  0%{opacity:0;transform:translate(-50%,-55%) scale(.5)}
-  10%{opacity:1;transform:translate(-50%,-68%) scale(1.15)}
-  20%{transform:translate(-50%,-72%) scale(1)}
-  80%{opacity:1;transform:translate(-50%,-88%) scale(1)}
-  100%{opacity:0;transform:translate(-50%,-108%) scale(.95)}
+  0%{opacity:0;transform:translate(-50%,-54%) scale(.92)}
+  12%{opacity:1;transform:translate(-50%,-62%) scale(1)}
+  75%{opacity:.9;transform:translate(-50%,-74%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-82%) scale(.96)}
 }
 /* player tokens on board */
 .tokens{
@@ -1241,13 +1236,15 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   min-height:22px;padding:0 8px;line-height:1.35;
 }
 .hub-activity{
-  display:flex;flex-direction:column;gap:5px;
+  display:flex;flex-direction:column;gap:4px;
   width:100%;max-width:96%;margin-top:8px;
+  max-height:min(120px,18vh);overflow:hidden;
 }
 .hub-activity-line{
-  font-size:clamp(13px,1.85vw,16px);line-height:1.4;font-weight:600;
-  color:rgba(255,255,255,.72);text-align:center;
+  font-size:clamp(11px,1.55vw,13px);line-height:1.35;font-weight:600;
+  color:rgba(255,255,255,.62);text-align:center;
   margin:0;padding:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   background:none;border:none;box-shadow:none;
 }
 .hub-activity-line--new{animation:hubActivityIn .3s ease}
@@ -1577,8 +1574,9 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 }
 .players-list{display:flex;flex-direction:column;gap:9px}
 #tradeCard.trade-card,#tradeCard{
-  border-radius:14px;padding:10px 12px 12px;
-  display:flex;flex-direction:column;gap:8px;
+  border-radius:14px;padding:12px 14px 14px;
+  display:flex;flex-direction:column;gap:10px;
+  min-height:140px;
 }
 #tradeCard.hidden{display:none}
 .trade-card__head{
@@ -1601,9 +1599,10 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   list-style:none;padding:2px 0 6px;
 }
 .trade-past-fold summary::-webkit-details-marker{display:none}
-.trade-feed-list--compact{max-height:100px;gap:4px}
-.trade-feed-list--compact .trade-feed-item{padding:6px 8px;border-radius:8px;font-size:11px}
+.trade-feed-list--compact{max-height:180px;gap:5px}
+.trade-feed-list--compact .trade-feed-item{padding:8px 10px;border-radius:8px;font-size:11.5px}
 .trade-feed-list--compact .trade-feed-item__sub{font-size:10px}
+.trade-feed-list--open{max-height:200px}
 .trade-card-btn--mini{
   width:auto;padding:5px 10px;border-radius:8px;font-size:10px;font-weight:800;
   background:rgba(139,111,232,.2);color:#e8dcff;border:1px solid rgba(180,150,255,.28);
@@ -1632,6 +1631,9 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   transform:translateY(-1px);
 }
 .trade-feed-item--declined{opacity:.85;border-left:3px solid rgba(225,91,91,.5)}
+.trade-feed-item--archived{opacity:.7;cursor:default}
+.trade-feed-item--archived:hover{transform:none;background:rgba(255,255,255,.05)}
+.trade-feed-item__badge--declined{color:#fca5a5;background:rgba(220,60,60,.15)}
 .trade-feed-item--pending{border-left:3px solid #b89cf5}
 .trade-feed-item__row{
   display:flex;align-items:center;gap:8px;min-width:0;

@@ -2,7 +2,7 @@
    mastermind.js — MASTERMIND 🧠
 ============================================================ */
 
-import { PERSONALITIES, registerPersonality, _engine as E } from './bots.js';
+import { PERSONALITIES, registerPersonality, _engine as E } from './botCore.js';
 
 function portfolioIncome(pl) {
   return E.ownedBy(pl).reduce((s, t) => s + E.expectedIncome(t, pl.id), 0);

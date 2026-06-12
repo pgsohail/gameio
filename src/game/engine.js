@@ -40,7 +40,7 @@ function ensureBotsReady() {
     log,
     addOpenTrade,
     scheduleBotTradeResponse,
-    openTradeDetail,
+    notifyTradeRecipient,
     renderAll,
   });
   botsReady = true;
@@ -162,10 +162,12 @@ const TURN_ENGAGE_WARN_MS = 20_000;
 const TURN_BONUS_MS = 30_000;
 const TRADE_QUEUE_MAX = 5;
 const TRADE_EXPIRE_WARN_MS = 10_000;
+const TRADE_DECLINED_TTL_MS = 2 * 60 * 1000;
+const TRADE_ARCHIVED_TTL_MS = 2 * 60 * 1000;
 let turnTimerInterval = null;
 let turnTimeoutHandled = false;
 const tradeActivityLog = [];
-const S={players:[],turn:0,phase:'idle',dice:[1,1],doubles:0,fortune:[],treasury:[],pot:0,over:false,recentTrades:[],openTrades:[],rules:{},
+const S={players:[],turn:0,phase:'idle',dice:[1,1],doubles:0,fortune:[],treasury:[],pot:0,over:false,recentTrades:[],openTrades:[],tradeArchive:[],rules:{},
   turnStartedAt:0,voteKick:{voters:[]},
   get cur(){return this.players[this.turn];}};
 
@@ -232,6 +234,8 @@ function exportGameState() {
       status: t.status,
       awaitingId: t.awaitingId,
       round: t.round,
+      createdAt: t.createdAt,
+      declinedAt: t.declinedAt,
       history: t.history.map(h => ({
         round: h.round,
         by: h.by,
@@ -242,6 +246,7 @@ function exportGameState() {
         text: h.text,
       })),
     })),
+    tradeArchive: (S.tradeArchive || []).map(a => ({ ...a })),
     tradeSeq,
   };
 }
@@ -291,6 +296,7 @@ function importGameState(state) {
   S.voteKick = state.voteKick ? { voters: [...(state.voteKick.voters || [])] } : { voters: [] };
   S.voteKickedUsers = state.voteKickedUsers ? [...state.voteKickedUsers] : (S.voteKickedUsers || []);
   if (state.tradeSeq) tradeSeq = state.tradeSeq;
+  const prevOpenIds = new Set((S.openTrades || []).map(t => t.id));
   if (state.openTrades) {
     S.openTrades = state.openTrades.map(t => ({
       ...t,
@@ -302,6 +308,17 @@ function importGameState(state) {
         wantIdx: h.wantIdx ? [...h.wantIdx] : undefined,
       })),
     }));
+  }
+  if (state.tradeArchive) {
+    S.tradeArchive = state.tradeArchive.map(a => ({ ...a }));
+  }
+  const me = localHuman();
+  if (me) {
+    for (const t of S.openTrades || []) {
+      if (!prevOpenIds.has(t.id) && t.status === 'pending' && t.awaitingId === me.id) {
+        notifyTradeRecipient(t);
+      }
+    }
   }
   restoreAuctionState(state.auction);
   if (Date.now() >= remoteRollUntil) {
@@ -409,6 +426,7 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     S.treasury = shuffle(TREASURY);
     S.recentTrades = [];
     S.openTrades = [];
+    S.tradeArchive = [];
     tradeSeq = 1;
     S.over = false;
     S.turn = 0;
@@ -937,21 +955,43 @@ function recordTrade(from,to,offerIdx,wantIdx,offerCash,wantCash,tradeId=null){
     fromName:from.name,toName:to.name,fromEmoji:from.emoji,toEmoji:to.emoji,
     fromColor:from.color,toColor:to.color,
     offerIdx:[...offerIdx],wantIdx:[...wantIdx],offerCash,wantCash,
+    completedAt:Date.now(),
   });
   if(S.recentTrades.length>6)S.recentTrades.length=6;
 }
 function renderTradeRecent(){
   const list=$('tradeRecentList');
   if(!list)return;
-  const trades=S.recentTrades||[];
-  if(!trades.length){
+  const now=Date.now();
+  const archived=(S.tradeArchive||[]).filter(a=>now-a.archivedAt<TRADE_ARCHIVED_TTL_MS);
+  const completed=S.recentTrades||[];
+  const items=[
+    ...archived.map(a=>({kind:'archived',sortAt:a.archivedAt,...a})),
+    ...completed.map((t,i)=>({kind:'done',sortAt:t.completedAt||0,idx:i,...t})),
+  ].sort((a,b)=>b.sortAt-a.sortAt);
+  if(!items.length){
     list.innerHTML='<div class="trade-feed-empty">No past trades yet.</div>';
     return;
   }
-  list.innerHTML=trades.map((t,i)=>{
+  list.innerHTML=items.map(entry=>{
+    if(entry.kind==='archived'){
+      const badge=entry.status==='expired'?'Expired':'Declined';
+      return `<button type="button" class="trade-feed-item trade-feed-item--declined trade-feed-item--archived" disabled>
+        <span class="trade-feed-item__row">
+          <span class="trade-feed-item__avatars">
+            <span class="trade-feed-av p-av p-av--0" style="--pc:${entry.fromColor}">${entry.fromEmoji}</span>
+            <span class="trade-feed-av p-av p-av--1" style="--pc:${entry.toColor}">${entry.toEmoji}</span>
+          </span>
+          <span class="trade-feed-item__main">${tradeEsc(entry.fromName)} ↔ ${tradeEsc(entry.toName)}</span>
+          <span class="trade-feed-item__badge trade-feed-item__badge--declined">${badge}</span>
+        </span>
+        <span class="trade-feed-item__sub">${tradeEsc(entry.gave)} → ${tradeEsc(entry.got)}</span>
+      </button>`;
+    }
+    const t=entry;
     const gave=tradeTileSummary(t.offerIdx,t.offerCash);
     const got=tradeTileSummary(t.wantIdx,t.wantCash);
-    return `<button type="button" class="trade-feed-item" data-recent="${i}">
+    return `<button type="button" class="trade-feed-item" data-recent="${t.idx}">
       <span class="trade-feed-item__row">
         <span class="trade-feed-item__avatars">
           <span class="trade-feed-av p-av p-av--0" style="--pc:${t.fromColor}">${t.fromEmoji}</span>
@@ -982,7 +1022,8 @@ function renderTradeCard(){
   renderOpenTrades();
   renderTradeRecent();
   const pastFold=$('tradePastFold');
-  const hasPast=(S.recentTrades||[]).length>0;
+  const hasPast=(S.recentTrades||[]).length>0
+    ||(S.tradeArchive||[]).some(a=>Date.now()-a.archivedAt<TRADE_ARCHIVED_TTL_MS);
   pastFold?.classList.toggle('hidden',!hasPast);
   if(pastFold&&!hasPast)pastFold.open=false;
 }
@@ -998,7 +1039,7 @@ function logPlainText(html){
 function renderHubActivity(){
   const hub=$('hubActivity'),logEl=$('log');
   if(!hub||!logEl)return;
-  const lines=[...logEl.querySelectorAll('.logline')].slice(0,2);
+  const lines=[...logEl.querySelectorAll('.logline')].slice(0,5);
   if(!lines.length){hub.innerHTML='';return;}
   hub.innerHTML=lines.map((l,i)=>{
     const text=logPlainText(l.innerHTML);
@@ -1012,7 +1053,7 @@ function openTradeFromLog(tradeId,kind='open'){
     return;
   }
   const trade=getOpenTrade(tradeId);
-  if(trade)openTradeDetail(trade.id,trade.awaitingId===localHuman()?.id?'incoming':null);
+  if(trade)openTradeDetail(trade.id,trade.awaitingId===localHuman()?.id?'incoming':null,{force:isTradeParty(trade)});
 }
 function pushTradeActivity(entry){
   tradeActivityLog.unshift(entry);
@@ -2100,6 +2141,32 @@ function tradable(p){return ownedBy(p).filter(t=>!t.mortgaged&&t.houses===0);}
 function propValue(t){return t.mortgaged?Math.floor(t.price/2):t.price;}
 function tradeValue(props,cash){return props.reduce((s,t)=>s+propValue(t),0)+cash;}
 function tradeEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+function isTradeParty(trade){
+  const me=localHuman();
+  return !!(me&&trade&&(trade.fromId===me.id||trade.toId===me.id));
+}
+function notifyTradeRecipient(trade){
+  const me=localHuman();
+  if(!me||!trade||trade.status!=='pending'||trade.awaitingId!==me.id)return;
+  openTradeDetail(trade.id,'incoming',{auto:true});
+}
+function archiveTrade(trade,reason='declined'){
+  const from=S.players[trade.fromId],to=S.players[trade.toId];
+  if(!from||!to)return;
+  S.tradeArchive=S.tradeArchive||[];
+  S.tradeArchive.unshift({
+    id:trade.id,
+    fromName:from.name,toName:to.name,
+    fromEmoji:from.emoji,toEmoji:to.emoji,
+    fromColor:from.color,toColor:to.color,
+    status:reason,
+    archivedAt:Date.now(),
+    gave:tradeTileSummary(trade.offerIdx,trade.offerCash),
+    got:tradeTileSummary(trade.wantIdx,trade.wantCash),
+  });
+  if(S.tradeArchive.length>12)S.tradeArchive.length=12;
+  removeOpenTrade(trade.id);
+}
 function getOpenTrade(id){return S.openTrades.find(t=>t.id===id);}
 function removeOpenTrade(id){S.openTrades=S.openTrades.filter(t=>t.id!==id);}
 function tradeStatusLabel(t){
@@ -2110,18 +2177,41 @@ function tradeStatusLabel(t){
   }
   return t.status;
 }
+function sortOpenTrades(list){
+  return list.slice().sort((a,b)=>{
+    const pri=t=>t.status==='pending'?0:1;
+    if(pri(a)!==pri(b))return pri(a)-pri(b);
+    const ta=a.createdAt||a.declinedAt||0;
+    const tb=b.createdAt||b.declinedAt||0;
+    return tb-ta;
+  });
+}
 function maintainOpenTrades(){
   if(isMpGame()&&!isMpHost())return;
-  const open=S.openTrades||[];
-  if(open.length<=TRADE_QUEUE_MAX)return;
   const now=Date.now();
   let changed=false;
-  for(const t of open){
+  const open=S.openTrades||[];
+
+  if(S.tradeArchive?.length){
+    const before=S.tradeArchive.length;
+    S.tradeArchive=S.tradeArchive.filter(a=>now-a.archivedAt<TRADE_ARCHIVED_TTL_MS);
+    if(S.tradeArchive.length!==before)changed=true;
+  }
+
+  for(const t of [...open]){
+    if(t.status==='declined'){
+      if(!t.declinedAt)t.declinedAt=now;
+      if(now-t.declinedAt>=TRADE_DECLINED_TTL_MS){
+        archiveTrade(t,'declined');
+        changed=true;
+      }
+      continue;
+    }
     if(t.status!=='pending')continue;
     const awaiting=S.players[t.awaitingId];
     if(!awaiting||awaiting.bot)continue;
     if(!t.createdAt)t.createdAt=now;
-    if(!t.expireWarnAt){
+    if(open.length>TRADE_QUEUE_MAX&&!t.expireWarnAt){
       t.expireWarnAt=now;
       t.expireAt=now+TRADE_EXPIRE_WARN_MS;
       const summary=`${tradeTileSummary(t.offerIdx,t.offerCash)} → ${tradeTileSummary(t.wantIdx,t.wantCash)}`;
@@ -2131,7 +2221,7 @@ function maintainOpenTrades(){
       changed=true;
     }else if(t.expireAt&&now>=t.expireAt){
       log(`⌛ Trade offer from <b>${S.players[t.fromId]?.name}</b> to <b>${awaiting.name}</b> expired.`,S.players[t.fromId]);
-      removeOpenTrade(t.id);
+      archiveTrade(t,'expired');
       changed=true;
     }
   }
@@ -2197,7 +2287,7 @@ function finalizeOpenTrade(trade){
 function renderOpenTrades(){
   const list=$('tradeOpenList');
   if(!list)return;
-  const open=S.openTrades||[];
+  const open=sortOpenTrades(S.openTrades||[]);
   if(!open.length){
     list.innerHTML='<div class="trade-feed-empty">No active trades yet.</div>';
     return;
@@ -2224,7 +2314,7 @@ function renderOpenTrades(){
     </div>`;
   }).join('');
   list.querySelectorAll('.trade-feed-item[data-id]').forEach(btn=>{
-    btn.onclick=()=>openTradeDetail(+btn.dataset.id);
+    btn.onclick=()=>openTradeDetail(+btn.dataset.id,null,{force:true});
   });
   list.querySelectorAll('[data-cancel]').forEach(btn=>{
     btn.onclick=(e)=>{e.stopPropagation();cancelOpenTrade(+btn.dataset.cancel);};
@@ -2468,9 +2558,14 @@ function renderTradeReview(trade,mode){
     $('tradeReviewNegotiate').classList.toggle('hidden',!canNegotiate);
   }
 }
-function openTradeDetail(id,mode=null){
+function openTradeDetail(id,mode=null,opts={}){
+  const {force=false,auto=false}=opts;
   const trade=getOpenTrade(id);
   if(!trade)return;
+  const party=isTradeParty(trade);
+  if(!force&&!party)return;
+  if(auto&&mode==='incoming'&&trade.awaitingId!==localHuman()?.id)return;
+  viewingTradeId=id;
   renderTradeReview(trade,mode);
   $('tradeReviewModal')?.classList.remove('hidden','overlay--minimized');
   $('tradeRestoreBar')?.classList.add('hidden');
@@ -2508,8 +2603,10 @@ function respondBotToTrade(tradeId){
   const from=S.players[trade.fromId],to=S.players[trade.toId];
   const v=botEvaluateTrade(to,trade);
   if(v.action==='accept'){
-    renderTradeReview(trade,'accepted');
-    $('tradeReviewModal')?.classList.remove('hidden');
+    if(isTradeParty(trade)){
+      renderTradeReview(trade,'accepted');
+      $('tradeReviewModal')?.classList.remove('hidden');
+    }
     finalizeOpenTrade(trade);
     renderAll();
     setTimeout(closeTradeReview,1400);
@@ -2519,14 +2616,15 @@ function respondBotToTrade(tradeId){
     log(`🔄 <b>${to.name}</b> counters <b>${from.name}</b>'s trade offer.`,to);
     renderAll();
     if(from.bot)scheduleBotTradeResponse(trade);
-    else openTradeDetail(trade.id,'incoming');
+    else notifyTradeRecipient(trade);
   }else{
     trade.status='declined';
     trade.awaitingId=null;
+    trade.declinedAt=Date.now();
     trade.history.unshift({round:trade.round,by:to.id,text:`${to.name} declined`});
     log(`<b>${to.name}</b> declines the trade offer.`,to);
     renderAll();
-    openTradeDetail(tradeId,'declined');
+    if(isTradeParty(trade))openTradeDetail(tradeId,'declined',{auto:true});
   }
 }
 function proposeTrade(){
@@ -2561,7 +2659,7 @@ function proposeTrade(){
   markTurnEngagement();
   renderAll();
   if(to.bot)scheduleBotTradeResponse(trade);
-  else openTradeDetail(trade.id,'incoming');
+  else notifyTradeRecipient(trade);
 }
 function acceptIncomingTrade(){
   const trade=getOpenTrade(viewingTradeId);
@@ -2580,11 +2678,12 @@ function rejectIncomingTrade(){
   if(to.bot)return;
   trade.status='declined';
   trade.awaitingId=null;
+  trade.declinedAt=Date.now();
   trade.history.unshift({round:trade.round,by:to.id,text:`${to.name} declined`});
   log(`<b>${to.name}</b> declines the trade offer from <b>${from.name}</b>.`,to);
   renderAll();
   if(isMultiplayerActive())broadcastStateNow();
-  openTradeDetail(trade.id,'declined');
+  closeTradeReview();
 }
 function dismissDeclinedTrade(){
   closeTradeReview();

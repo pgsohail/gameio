@@ -200,21 +200,20 @@ export function playJailArrest(t) {
 export function playTileCashFx(t, amount, opts = {}) {
   if (!t?.el || !amount) return;
   const delay = opts.delay ?? 0;
-  const color = opts.color;
   const run = () => {
     const gain = amount > 0;
     const el = document.createElement('div');
     el.className = `tile-cash-fx${gain ? ' tile-cash-fx--gain' : ' tile-cash-fx--pay'}`;
-    if (color) el.style.setProperty('--fx-color', color);
     const sign = gain ? '+' : '−';
     el.innerHTML = `<span class="tile-cash-fx__pill">${sign}$${Math.abs(amount).toLocaleString()}</span>`;
     t.el.appendChild(el);
     el.addEventListener('animationend', () => el.remove(), { once: true });
+    setTimeout(() => el.remove(), 1300);
     if (!gain) {
       t.el.classList.remove('tile-rent-hit');
       void t.el.offsetWidth;
       t.el.classList.add('tile-rent-hit');
-      setTimeout(() => t.el.classList.remove('tile-rent-hit'), 1100);
+      setTimeout(() => t.el.classList.remove('tile-rent-hit'), 800);
     }
   };
   if (delay) setTimeout(run, delay);
