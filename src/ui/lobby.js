@@ -169,11 +169,12 @@ async function renderRoomList() {
       const humans = r.humans ?? r.slots?.filter(s => s && !s.bot).length ?? 0;
       const open = r.openSeats ?? r.slots?.filter(s => !s).length ?? 0;
       const total = r.maxPlayers || r.slots?.length || 4;
+      const botHost = !!r.humanoidHosted;
       return `
-      <button type="button" class="room-card room-card--public" data-room="${esc(r.id)}">
+      <button type="button" class="room-card room-card--public${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
         <div class="room-card__left">
           <span class="room-card__id">${esc(r.id)}</span>
-          <span class="room-card__meta">${humans} playing · ${open} seat${open === 1 ? '' : 's'} open</span>
+          <span class="room-card__meta">${botHost ? '🧠 Bot host · tap to join' : `${humans} playing · ${open} seat${open === 1 ? '' : 's'} open`}</span>
           <div class="room-card__slots">${slotAvatars(r.slots, total)}</div>
         </div>
         <div class="room-card__right">
@@ -713,7 +714,7 @@ async function quickPlayPublic() {
   btn?.setAttribute('disabled', '');
   try {
     const rules = { ...gatherRules(), allowBots: false };
-    const { room, created } = await roomsApi.quickJoin({
+    const { room, created, joined } = await roomsApi.quickJoin({
       rules,
       maxPlayers: 2,
       emoji: hostEmoji,
@@ -723,8 +724,14 @@ async function quickPlayPublic() {
     roomsPanelOpen = true;
     renderRoomList();
     const sub = $('boardWaitSub');
-    if (sub && created) {
-      sub.textContent = 'Public room — waiting for players. Others can join from All rooms.';
+    if (sub) {
+      if (created) {
+        sub.textContent = 'Your public room — other players join here first. Up to 3 travelers may fill in; after 2½ min empty seats auto-fill.';
+      } else if (joined !== false) {
+        sub.textContent = 'Joined a human public room — waiting for more players.';
+      } else {
+        sub.textContent = 'Public room — waiting for players.';
+      }
     }
   } catch (e) {
     alert(e.message || 'Could not join a public game. Try again.');

@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import {
   HUMANOID_CAP,
+  pickHumanoidBudget,
   scheduleHumanoidJoins,
   processHumanoidQueue,
   maintainBotHostedRoom,
@@ -150,7 +151,10 @@ function publicRoomList() {
     .filter(r => !r.private && r.status === 'lobby')
     .filter(r => humanCount(r) > 0 || r.humanoidHosted)
     .filter(r => r.slots.some(s => !s))
-    .sort((a, b) => humanCount(b) - humanCount(a) || b.updatedAt - a.updatedAt)
+    .sort((a, b) => {
+      if (a.humanoidHosted !== b.humanoidHosted) return a.humanoidHosted ? 1 : -1;
+      return humanCount(b) - humanCount(a) || b.updatedAt - a.updatedAt;
+    })
     .map(roomToClient);
 }
 
@@ -166,9 +170,12 @@ function pickJoinColor(room, preferred) {
   return color;
 }
 
-function findJoinablePublicRoom(userId) {
+/** Public lobbies with at least one real human — never bot-hosted mastermind rooms. */
+function findJoinableHumanPublicRoom(userId) {
   return [...rooms.values()]
     .filter(r => !r.private && r.status === 'lobby')
+    .filter(r => !r.humanoidHosted)
+    .filter(r => humanCount(r) > 0)
     .filter(r => !r.slots.some(s => s?.userId === userId))
     .filter(r => !r.kicked?.[userId])
     .filter(r => r.slots.some(s => !s))
@@ -224,7 +231,7 @@ function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
     rules: { ...rules, title: 'Buildup.io', allowBots: false },
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    humanoidBudget: HUMANOID_CAP,
+    humanoidBudget: pickHumanoidBudget(),
     humanoidQueue: [],
   };
   room.slots[0] = {
@@ -257,6 +264,7 @@ function roomToClient(room, viewerId = null) {
     updatedAt: room.updatedAt,
     humans: humanCount(room),
     openSeats: room.slots.filter(s => !s).length,
+    humanoidHosted: !!room.humanoidHosted,
   };
   if (room.status === 'playing') {
     base.players = room.players;
@@ -618,7 +626,7 @@ app.post('/api/rooms/quick-join', authMiddleware, (req, res) => {
     }
   }
 
-  let room = findJoinablePublicRoom(user.id);
+  let room = findJoinableHumanPublicRoom(user.id);
   let created = false;
 
   if (room) {

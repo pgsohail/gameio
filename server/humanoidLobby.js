@@ -1,8 +1,8 @@
 import { randomBytes } from 'crypto';
 import { pickHumanoidName } from './humanoidNames.js';
 
-export const HUMANOID_CAP = 2;
-export const HUMANOID_STALE_MS = 2 * 60 * 1000;
+export const HUMANOID_CAP = 3;
+export const HUMANOID_STALE_MS = 2.5 * 60 * 1000;
 const JOIN_MIN_MS = 8_000;
 const JOIN_MAX_MS = 48_000;
 const STALE_JOIN_MIN_MS = 10_000;
@@ -14,6 +14,10 @@ export const HUMANOID_EMOJIS = [
 ];
 
 let botHostedRoomId = null;
+
+export function pickHumanoidBudget() {
+  return 1 + Math.floor(Math.random() * 3);
+}
 
 export function getBotHostedRoomId() {
   return botHostedRoomId;
