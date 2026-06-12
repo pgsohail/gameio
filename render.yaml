@@ -15,3 +15,8 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      # Same OAuth Client ID for both (create free at console.cloud.google.com)
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
