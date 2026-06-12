@@ -856,6 +856,45 @@ let pendingInviteRoomId = null;
 let rejoinTimerInterval = null;
 let pendingRejoinRoom = null;
 
+function resetGameSession() {
+  gameStarted = false;
+  gameMultiplayer = false;
+  gamePausedAway = false;
+  $('hud')?.classList.add('hidden');
+  $('scene')?.classList.add('hidden');
+  $('roomLobby')?.classList.add('hidden');
+  $('winModal')?.classList.add('hidden');
+  document.body.classList.remove('room-lobby-mode');
+  setGameBrandVisible(false);
+  detachMultiplayer();
+  disconnectRoomSocket();
+  currentRoomId = null;
+  sessionStorage.removeItem(ROOM_SESSION_KEY);
+  const url = new URL(location.href);
+  url.searchParams.delete('room');
+  history.replaceState(null, '', url.pathname + url.search);
+  $('lobby')?.classList.remove('hidden');
+  $('hubTop')?.classList.remove('hidden');
+  updateReturnToGameBtn();
+}
+
+export async function leaveActiveGame() {
+  if (!gameStarted) return;
+  if (!confirm('Leave this game? You forfeit your properties and return to the home screen.')) return;
+
+  const { forfeitLocalHuman } = await import('../game/engine.js');
+  forfeitLocalHuman();
+
+  const rid = currentRoomId;
+  if (rid) {
+    try { await roomsApi.leave(rid); } catch { /* room gone */ }
+  }
+
+  resetGameSession();
+  showView('home');
+  renderRoomList();
+}
+
 export async function playAgainAfterGame() {
   $('winModal')?.classList.add('hidden');
   $('hud')?.classList.add('hidden');
@@ -1043,6 +1082,9 @@ function canRejoinRoom(room, userId) {
 function rejoinBlockedMessage(room) {
   if (room.kicked?.reason === 'vote') {
     return 'Your teammates vote-kicked you from this game.';
+  }
+  if (room.kicked?.reason === 'leave') {
+    return 'You left this game.';
   }
   if (room.kicked || (room.rejoinUntil && Date.now() > room.rejoinUntil)) {
     return 'Your 2-minute rejoin window expired — you were removed from the game.';
@@ -1365,6 +1407,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     showView('home');
     renderRoomList();
   });
+  $('leaveGameBtn')?.addEventListener('click', () => leaveActiveGame());
   $('roomRefresh')?.addEventListener('click', () => {
     roomsPanelOpen = true;
     renderRoomList();

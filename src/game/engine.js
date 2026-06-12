@@ -729,9 +729,10 @@ function renderActionsCard(){
   const card=$('playerActionsCard');
   if(!card)return;
   const human=localHuman();
-  const inGame=human&&!human.dead&&!S.over;
-  card.classList.toggle('hidden',!inGame);
-  if(!inGame)return;
+  const showCard=!!human&&!S.over;
+  card.classList.toggle('hidden',!showCard);
+  if(!showCard)return;
+  const alive=human&&!human.dead;
   const cur=S.cur;
   const elapsed=Math.max(0,Date.now()-(S.turnStartedAt||Date.now()));
   const left=Math.max(0,TURN_LIMIT_MS-elapsed);
@@ -741,7 +742,8 @@ function renderActionsCard(){
   if(ring)ring.style.setProperty('--pct',`${pct}`);
   if(hint){
     hint.classList.remove('turn-timer__hint--urgent');
-    if(cur?.dead)hint.textContent='';
+    if(!alive)hint.textContent='You\'re out of the game — leave when ready.';
+    else if(cur?.dead)hint.textContent='';
     else if(cur?.id===human?.id){
       if(left<=TURN_ENGAGE_WARN_MS&&!cur.turnEngaged){
         hint.textContent='Hurry — make a move soon or you\'ll be removed from the game.';
@@ -755,7 +757,7 @@ function renderActionsCard(){
   }
   const kickBtn=$('voteKickBtn');
   const status=$('voteKickStatus');
-  const canVote=cur&&!cur.dead&&!cur.bot&&human&&human.id!==cur.id;
+  const canVote=alive&&cur&&!cur.dead&&!cur.bot&&human.id!==cur.id;
   const showKick=canVote&&(elapsed>=60_000||left<=TURN_ENGAGE_WARN_MS);
   kickBtn?.classList.toggle('hidden',!showKick);
   if(status){
@@ -766,7 +768,8 @@ function renderActionsCard(){
       status.classList.remove('hidden');
     }else status.classList.add('hidden');
   }
-  $('bankruptBtn')?.classList.toggle('hidden',!human||human.dead);
+  $('bankruptBtn')?.classList.toggle('hidden',!alive);
+  $('leaveGameBtn')?.classList.toggle('hidden',!human);
 }
 function ensureTurnTimer(){
   if(turnTimerInterval)return;
@@ -1237,10 +1240,17 @@ function settleDebt(p){
 function voluntaryBankrupt(p){
   if(!p||p.dead||p.bot||S.over)return;
   if(!confirm('Declare bankruptcy and leave the game? Your properties return to the bank.'))return;
-  const wasTurn=S.players[S.turn]===p;
+  forfeitLocalHuman();
+}
+export function forfeitLocalHuman(){
+  const p=localHuman();
+  if(!p||p.dead||S.over)return false;
   if(p.debt)delete p.debt;
+  const wasTurn=S.players[S.turn]===p;
   bankrupt(p,null);
   if(wasTurn&&!S.over)endTurn();
+  if(isMultiplayerActive())broadcastStateNow();
+  return true;
 }
 function liquidate(p,target){
   let guard=400;

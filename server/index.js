@@ -686,7 +686,18 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
 app.post('/api/rooms/:id/leave', authMiddleware, (req, res) => {
   pruneRooms();
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
-  if (!room || room.status !== 'lobby') {
+  if (!room) return res.json({ left: true, room: null });
+
+  if (room.status === 'playing') {
+    if (!wasRoomMember(room, req.user.id)) {
+      return res.json({ left: true, room: null });
+    }
+    kickPlayerFromGame(room, req.user.id, 'leave');
+    broadcastRoom(room.id);
+    return res.json({ left: true, room: roomToClient(room, req.user.id) });
+  }
+
+  if (room.status !== 'lobby') {
     return res.json({ left: true, room: null });
   }
   const idx = room.slots.findIndex(s => s?.userId === req.user.id);
