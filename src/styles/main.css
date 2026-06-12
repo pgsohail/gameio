@@ -3237,6 +3237,8 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   border-right:1px solid rgba(255,255,255,.08);
 }
 .room-card__id{font-size:18px;font-weight:800;letter-spacing:.08em;color:#fff}
+.room-card__meta{font-size:10px;font-weight:700;color:rgba(94,234,212,.85);letter-spacing:.02em}
+.room-card--public{border-color:rgba(94,234,212,.22)}
 .room-card__slots{display:flex;gap:6px;flex-wrap:wrap}
 .room-slot{
   width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:14px;

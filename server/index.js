@@ -135,8 +135,89 @@ function occupiedCount(room) {
 function publicRoomList() {
   pruneRooms();
   return [...rooms.values()]
-    .filter(r => !r.private && r.status === 'lobby' && occupiedCount(r) > 0)
+    .filter(r => !r.private && r.status === 'lobby')
+    .filter(r => humanCount(r) > 0)
+    .filter(r => r.slots.some(s => !s))
+    .sort((a, b) => humanCount(b) - humanCount(a) || b.updatedAt - a.updatedAt)
     .map(roomToClient);
+}
+
+const JOIN_COLORS = ['#FF1744', '#F50057', '#651FFF', '#3D5AFE', '#00E5FF', '#00E676', '#FFEA00', '#FF9100'];
+const JOIN_EMOJIS = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
+
+function pickJoinColor(room, preferred) {
+  const taken = room.slots.filter(Boolean).map(s => s.color);
+  let color = preferred || JOIN_COLORS[0];
+  if (taken.includes(color)) {
+    color = JOIN_COLORS.find(c => !taken.includes(c)) || color;
+  }
+  return color;
+}
+
+function findJoinablePublicRoom(userId) {
+  return [...rooms.values()]
+    .filter(r => !r.private && r.status === 'lobby')
+    .filter(r => !r.slots.some(s => s?.userId === userId))
+    .filter(r => r.slots.some(s => !s))
+    .sort((a, b) => {
+      const ah = humanCount(a);
+      const bh = humanCount(b);
+      if (bh !== ah) return bh - ah;
+      const ao = a.slots.filter(s => !s).length;
+      const bo = b.slots.filter(s => !s).length;
+      if (ao !== bo) return ao - bo;
+      return b.updatedAt - a.updatedAt;
+    })[0] || null;
+}
+
+function seatUserInRoom(room, user, { emoji, color } = {}) {
+  if (room.slots.some(s => s?.userId === user.id)) {
+    return { ok: true, already: true };
+  }
+  let idx = room.slots.findIndex(s => !s);
+  if (idx < 0 && room.rules?.allowBots) {
+    for (let i = room.slots.length - 1; i >= 0; i--) {
+      if (room.slots[i]?.bot) { idx = i; break; }
+    }
+  }
+  if (idx < 0) return { ok: false, error: 'Room full' };
+  room.slots[idx] = {
+    userId: user.id,
+    name: user.name,
+    emoji: emoji || JOIN_EMOJIS[idx % JOIN_EMOJIS.length],
+    color: pickJoinColor(room, color),
+    bot: false,
+    isHost: false,
+  };
+  room.updatedAt = Date.now();
+  return { ok: true };
+}
+
+function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
+  const id = secureRoomId();
+  const max = Math.min(6, Math.max(2, +(maxPlayers || 4)));
+  const room = {
+    id,
+    private: false,
+    status: 'lobby',
+    hostId: user.id,
+    adminSlot: 0,
+    maxPlayers: max,
+    slots: Array.from({ length: max }, () => null),
+    rules: { ...rules, title: 'Buildup.io', allowBots: false },
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  room.slots[0] = {
+    userId: user.id,
+    name: user.name,
+    emoji: emoji || '🚂',
+    color: color || '#3D5AFE',
+    bot: false,
+    isHost: true,
+  };
+  rooms.set(id, room);
+  return room;
 }
 
 function wasRoomMember(room, userId) {
@@ -155,6 +236,8 @@ function roomToClient(room, viewerId = null) {
     slots: room.slots,
     rules: room.rules,
     updatedAt: room.updatedAt,
+    humans: humanCount(room),
+    openSeats: room.slots.filter(s => !s).length,
   };
   if (room.status === 'playing') {
     base.players = room.players;
@@ -462,38 +545,51 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
   res.json({ room: roomToClient(room) });
 });
 
+app.post('/api/rooms/quick-join', authMiddleware, (req, res) => {
+  pruneRooms();
+  const { rules, maxPlayers, emoji, color } = req.body || {};
+  const user = req.user;
+
+  for (const room of rooms.values()) {
+    if (room.status === 'lobby' && room.slots.some(s => s?.userId === user.id)) {
+      return res.json({ room: roomToClient(room, user.id), joined: false, created: false });
+    }
+  }
+
+  let room = findJoinablePublicRoom(user.id);
+  let created = false;
+
+  if (room) {
+    const result = seatUserInRoom(room, user, { emoji, color });
+    if (!result.ok) {
+      room = null;
+    } else {
+      broadcastRoom(room.id);
+      return res.json({ room: roomToClient(room, user.id), joined: true, created: false });
+    }
+  }
+
+  if (rooms.size >= MAX_ROOMS) {
+    return res.status(503).json({ error: 'Server busy. Try again in a moment.' });
+  }
+
+  const playRules = { ...(rules || {}), allowBots: false, title: 'Buildup.io' };
+  room = createPublicRoom(user, { rules: playRules, maxPlayers, emoji, color });
+  broadcastRoom(room.id);
+  res.json({ room: roomToClient(room, user.id), joined: true, created: true });
+});
+
 app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   pruneRooms();
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.slots.some(s => s?.userId === req.user.id)) {
-    return res.json({ room: roomToClient(room) });
+    return res.json({ room: roomToClient(room, req.user.id) });
   }
-  let idx = room.slots.findIndex(s => !s);
-  if (idx < 0 && room.rules?.allowBots) {
-    for (let i = room.slots.length - 1; i >= 0; i--) {
-      if (room.slots[i]?.bot) { idx = i; break; }
-    }
-  }
-  if (idx < 0) return res.status(400).json({ error: 'Room full' });
-  const emojis = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
-  const colors = ['#FF1744', '#F50057', '#651FFF', '#3D5AFE', '#00E5FF', '#00E676', '#FFEA00', '#FF9100'];
-  const taken = room.slots.filter(Boolean).map(s => s.color);
-  let color = req.body?.color || colors[idx % colors.length];
-  if (taken.includes(color)) {
-    color = colors.find(c => !taken.includes(c)) || color;
-  }
-  room.slots[idx] = {
-    userId: req.user.id,
-    name: req.user.name,
-    emoji: req.body?.emoji || emojis[idx % emojis.length],
-    color,
-    bot: false,
-    isHost: false,
-  };
-  room.updatedAt = Date.now();
+  const result = seatUserInRoom(room, req.user, req.body || {});
+  if (!result.ok) return res.status(400).json({ error: result.error || 'Room full' });
   broadcastRoom(room.id);
-  res.json({ room: roomToClient(room) });
+  res.json({ room: roomToClient(room, req.user.id) });
 });
 
 app.patch('/api/rooms/:id', authMiddleware, (req, res) => {

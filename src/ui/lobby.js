@@ -1,4 +1,4 @@
-import { $, shuffle } from '../lib/format.js';
+import { $ } from '../lib/format.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
@@ -160,19 +160,24 @@ async function renderRoomList() {
       list.innerHTML = '';
       return;
     }
-    list.innerHTML = rooms.map(r => `
-      <button type="button" class="room-card" data-room="${esc(r.id)}">
+    list.innerHTML = rooms.map(r => {
+      const humans = r.humans ?? r.slots?.filter(s => s && !s.bot).length ?? 0;
+      const open = r.openSeats ?? r.slots?.filter(s => !s).length ?? 0;
+      const total = r.maxPlayers || r.slots?.length || 4;
+      return `
+      <button type="button" class="room-card room-card--public" data-room="${esc(r.id)}">
         <div class="room-card__left">
           <span class="room-card__id">${esc(r.id)}</span>
-          <div class="room-card__slots">${slotAvatars(r.slots, r.maxPlayers)}</div>
+          <span class="room-card__meta">${humans} playing · ${open} seat${open === 1 ? '' : 's'} open</span>
+          <div class="room-card__slots">${slotAvatars(r.slots, total)}</div>
         </div>
         <div class="room-card__right">
           <span class="room-card__mode">🗺 ${boardLabel(r.rules.per)}</span>
           <div class="room-card__rules">${ruleIconsHtml(r.rules)}</div>
           <span class="room-card__cash">▶ ${r.rules.cash}</span>
         </div>
-      </button>
-    `).join('');
+      </button>`;
+    }).join('');
     list.querySelectorAll('.room-card').forEach(btn => {
       btn.onclick = () => joinRoom(btn.dataset.room);
     });
@@ -534,9 +539,9 @@ function renderBoardLobby(room) {
     if (title) title.textContent = canLaunch ? 'Ready to launch' : 'Waiting for players';
     if (sub) sub.textContent = canLaunch
       ? `${mapName} · all seats filled`
-      : allowBots
-        ? 'Bots fill empty seats · share the invite link'
-        : 'Share the invite link with friends';
+      : room.private
+        ? 'Share the invite link with friends'
+        : 'Public room — players can join from All rooms on the home page';
   } else {
     if (title) title.textContent = 'In the lobby';
     if (sub) sub.textContent = 'Waiting for the admin to launch';
@@ -632,39 +637,36 @@ async function launchWaitingRoom() {
   }
 }
 
-async function quickPlayOffline() {
-  if (gamePausedAway && gameStarted) {
-    alert('You have a game in progress. Tap "Return to game" on the right to continue.');
+async function quickPlayPublic() {
+  if (gamePausedAway) {
+    alert(gameStarted
+      ? 'You have a game in progress. Tap "Return to game" on the right to continue.'
+      : 'You are still in a room. Tap "Return to room" on the right to go back.');
     return;
   }
   const u = await ensureUser();
   if (!u) return;
-  const rules = gatherRules();
-  let players = [{ name: u.name, bot: false, emoji: hostEmoji, color: hostColor, isAdmin: true }];
-  if (rules.allowBots) {
-    players.push({
-      name: 'Bot 2',
-      bot: true,
-      emoji: '🤖',
-      color: BRIGHT_COLORS[1],
-      isAdmin: false,
-    });
-  } else {
-    alert('Turn on Bots in advanced rules, or create a room to play with friends.');
-    return;
-  }
-  let adminId = 0;
-  if (rules.randomOrder && players.length > 1) {
-    players = shuffle(players);
-    adminId = players.findIndex(p => p.isAdmin);
-    if (adminId < 0) adminId = 0;
-  }
-  gameStarted = true;
+  const btn = $('quickPlayBtn');
+  btn?.setAttribute('disabled', '');
   try {
-    onStartGame?.({ rules, players, adminId });
+    const rules = { ...gatherRules(), allowBots: false };
+    const { room, created } = await roomsApi.quickJoin({
+      rules,
+      maxPlayers,
+      emoji: hostEmoji,
+      color: hostColor,
+    });
+    enterBoardLobby(room);
+    roomsPanelOpen = true;
+    renderRoomList();
+    const sub = $('boardWaitSub');
+    if (sub && created) {
+      sub.textContent = 'Public room — waiting for players. Others can join from All rooms.';
+    }
   } catch (e) {
-    gameStarted = false;
-    alert(e?.message || 'Could not start the game.');
+    alert(e.message || 'Could not join a public game. Try again.');
+  } finally {
+    btn?.removeAttribute('disabled');
   }
 }
 
@@ -1262,7 +1264,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
 
   $('authSignOut')?.addEventListener('click', signOut);
   $('startBtn')?.addEventListener('click', createLobbyRoom);
-  $('quickPlayBtn')?.addEventListener('click', quickPlayOffline);
+  $('quickPlayBtn')?.addEventListener('click', quickPlayPublic);
 
   const openCreate = async ({ privateRoom = true } = {}) => {
     if (!(await ensureUser())) return;
@@ -1330,6 +1332,10 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   });
 
   renderRoomList();
+
+  setInterval(() => {
+    if (!$('lobbyHome')?.classList.contains('hidden')) renderRoomList();
+  }, 5000);
 
   const inRoom = await handleRoomDeepLink();
   if (!inRoom && $('roomLobby')?.classList.contains('hidden')) {
