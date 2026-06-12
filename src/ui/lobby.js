@@ -90,7 +90,9 @@ function slotAvatars(slots, max) {
     const p = slots[i];
     if (p) {
       const crown = p.isHost ? '<span class="room-slot__crown">👑</span>' : '';
-      out.push(`<span class="room-slot room-slot--filled" style="--pc:${p.color}" title="${esc(p.name)}">${crown}${p.bot ? '🤖' : p.emoji}</span>`);
+      const isBot = p.bot && !p.humanoid;
+      const humanoidCls = p.humanoid ? ' room-slot--humanoid' : '';
+      out.push(`<span class="room-slot room-slot--filled${humanoidCls}" style="--pc:${p.color}" title="${esc(p.name)}">${crown}${isBot ? '🤖' : p.emoji}</span>`);
     } else {
       out.push('<span class="room-slot room-slot--empty"></span>');
     }
@@ -303,6 +305,8 @@ function startFromPayload(payload) {
     userId: p.userId,
     name: p.userId === u.id ? u.name : p.name,
     bot: !!p.bot,
+    humanoid: !!p.humanoid,
+    botBrain: p.botBrain || null,
     emoji: p.emoji,
     color: p.color,
     isAdmin: i === adminId,
@@ -501,8 +505,9 @@ function renderBoardLobby(room) {
   const humans = room.slots.filter(s => s && !s.bot).length;
   const total = room.slots.filter(Boolean).length;
   const allowBots = !!room.rules?.allowBots;
-  const minHumans = allowBots ? 1 : 2;
-  const canLaunch = full && total >= 2 && humans >= minHumans;
+  const humanoids = room.slots.filter(s => s && s.humanoid).length;
+  const minHumans = allowBots ? 1 : 1;
+  const canLaunch = full && total >= 2 && humans >= minHumans && (allowBots || humans >= 2 || humanoids >= 1);
 
   playLobbySlotSounds(room);
 
@@ -512,14 +517,16 @@ function renderBoardLobby(room) {
   $('boardPlayerList').innerHTML = room.slots.map((p, i) => {
     if (!p) return '';
     const canKick = isHost && !gameStarted && !p.isHost;
+    const isBot = p.bot && !p.humanoid;
+    const humanoidCls = p.humanoid ? ' room-player-item--humanoid' : '';
     return `
-    <li class="room-player-item${p.bot ? ' room-player-item--bot' : ''}">
-      <span class="room-player-item__tok" style="--pc:${esc(p.color)}">${p.bot ? '🤖' : p.emoji}</span>
+    <li class="room-player-item${isBot ? ' room-player-item--bot' : ''}${humanoidCls}">
+      <span class="room-player-item__tok${p.humanoid ? ' room-player-item__tok--humanoid' : ''}" style="--pc:${esc(p.color)}">${isBot ? '🤖' : p.emoji}</span>
       <span class="room-player-item__meta">
         <span class="room-player-item__name">${esc(p.name)}</span>
         <span class="room-player-item__badges">
           ${p.isHost ? '<span class="room-player-item__badge">Admin</span>' : ''}
-          ${p.bot ? '<span class="room-player-item__badge room-player-item__badge--bot">Bot</span>' : ''}
+          ${isBot ? '<span class="room-player-item__badge room-player-item__badge--bot">Bot</span>' : ''}
         </span>
       </span>
       ${canKick ? `<button type="button" class="room-player-kick" data-slot="${i}" title="Remove from room" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
@@ -541,7 +548,9 @@ function renderBoardLobby(room) {
       if (humans < minHumans) {
         launchHint.textContent = allowBots
           ? 'Need at least 1 player (bots can fill the rest).'
-          : 'Need at least 2 human players.';
+          : humans < 2 && humanoids < 1
+            ? 'Need another player — or wait for a traveler to join.'
+            : `Waiting for players (${total}/${room.maxPlayers})…`;
       } else if (!full) {
         launchHint.textContent = allowBots
           ? `Filling seats… ${total}/${room.maxPlayers}`
@@ -701,7 +710,7 @@ async function quickPlayPublic() {
     const rules = { ...gatherRules(), allowBots: false };
     const { room, created } = await roomsApi.quickJoin({
       rules,
-      maxPlayers,
+      maxPlayers: 2,
       emoji: hostEmoji,
       color: hostColor,
     });

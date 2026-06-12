@@ -8,6 +8,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { randomBytes } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { pickHumanoidName } from './humanoidNames.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -211,6 +212,7 @@ function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
     rules: { ...rules, title: 'Buildup.io', allowBots: false },
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    humanoidBudget: HUMANOID_CAP,
   };
   room.slots[0] = {
     userId: user.id,
@@ -320,6 +322,45 @@ function processAbsentTimeouts() {
 
 const BOT_EMOJIS = ['🤖', '🦾', '👾', '🎮', '⚡', '🔮'];
 const BOT_COLORS = ['#78909C', '#607D8B', '#546E7A', '#90A4AE', '#B0BEC5', '#455A64'];
+const HUMANOID_CAP = 2;
+const HUMANOID_EMOJIS = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀', '🦁', '🏎️', '🛸', '🌍', '🐪', '🎒'];
+
+function countHumanoids(room) {
+  return room.slots.filter(s => s?.humanoid).length;
+}
+
+function syncHumanoidFill(room) {
+  if (room.status !== 'lobby' || room.rules?.allowBots) return;
+  if (humanCount(room) < 1) return;
+  const budget = room.humanoidBudget ?? HUMANOID_CAP;
+  const have = countHumanoids(room);
+  if (have >= budget) return;
+  const usedNames = new Set(room.slots.filter(Boolean).map(s => s.name));
+  const emptyIdx = room.slots.map((s, i) => (!s ? i : -1)).filter(i => i >= 0);
+  const toAdd = Math.min(budget - have, emptyIdx.length, HUMANOID_CAP - have);
+  for (let n = 0; n < toAdd; n++) {
+    const idx = emptyIdx[n];
+    if (room.slots[idx]) continue;
+    room.slots[idx] = {
+      userId: `humanoid:${room.id}:${idx}:${randomBytes(4).toString('hex')}`,
+      name: pickHumanoidName(usedNames),
+      emoji: HUMANOID_EMOJIS[(idx + n) % HUMANOID_EMOJIS.length],
+      color: pickJoinColor(room, JOIN_COLORS[(idx + n + 1) % JOIN_COLORS.length]),
+      bot: true,
+      humanoid: true,
+      botBrain: 'mastermind',
+      isHost: false,
+    };
+    usedNames.add(room.slots[idx].name);
+  }
+  if (toAdd > 0) room.updatedAt = Date.now();
+}
+
+function syncLobbyFillers(room) {
+  if (room.status !== 'lobby') return;
+  if (room.rules?.allowBots) syncRoomBots(room);
+  else syncHumanoidFill(room);
+}
 
 function syncRoomBots(room) {
   if (!room.rules?.allowBots) return;
@@ -352,6 +393,9 @@ function kickLobbySlot(room, hostId, slotIndex) {
     return { ok: false, error: 'Cannot kick yourself' };
   }
   room.slots[idx] = null;
+  if (slot.humanoid) {
+    room.humanoidBudget = Math.max(0, (room.humanoidBudget ?? HUMANOID_CAP) - 1);
+  }
   if (!slot.bot) {
     room.kicked = room.kicked || {};
     room.kicked[slot.userId] = { reason: 'admin', at: Date.now() };
@@ -529,6 +573,11 @@ app.get('/api/rooms/:id', authMiddleware, (req, res) => {
   if (room.private && room.status !== 'lobby' && !wasRoomMember(room, req.user.id)) {
     return res.status(403).json({ error: 'Private room' });
   }
+  if (room.status === 'lobby') {
+    const before = JSON.stringify(room.slots);
+    syncLobbyFillers(room);
+    if (JSON.stringify(room.slots) !== before) broadcastRoom(room.id);
+  }
   res.json({ room: roomToClient(room, req.user.id) });
 });
 
@@ -551,6 +600,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
     rules: { ...rules, title: 'Buildup.io' },
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    humanoidBudget: HUMANOID_CAP,
   };
   room.slots[0] = {
     userId: req.user.id,
@@ -560,7 +610,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
     bot: false,
     isHost: true,
   };
-  if (room.rules.allowBots) syncRoomBots(room);
+  syncLobbyFillers(room);
   rooms.set(id, room);
   res.json({ room: roomToClient(room) });
 });
@@ -584,6 +634,7 @@ app.post('/api/rooms/quick-join', authMiddleware, (req, res) => {
     if (!result.ok) {
       room = null;
     } else {
+      syncLobbyFillers(room);
       broadcastRoom(room.id);
       return res.json({ room: roomToClient(room, user.id), joined: true, created: false });
     }
@@ -595,6 +646,7 @@ app.post('/api/rooms/quick-join', authMiddleware, (req, res) => {
 
   const playRules = { ...(rules || {}), allowBots: false, title: 'Buildup.io' };
   room = createPublicRoom(user, { rules: playRules, maxPlayers, emoji, color });
+  syncLobbyFillers(room);
   broadcastRoom(room.id);
   res.json({ room: roomToClient(room, user.id), joined: true, created: true });
 });
@@ -611,6 +663,7 @@ app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   }
   const result = seatUserInRoom(room, req.user, req.body || {});
   if (!result.ok) return res.status(400).json({ error: result.error || 'Room full' });
+  syncLobbyFillers(room);
   broadcastRoom(room.id);
   res.json({ room: roomToClient(room, req.user.id) });
 });
@@ -622,7 +675,7 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
   const { rules, maxPlayers: maxIn } = req.body || {};
   if (rules && typeof rules === 'object') {
     room.rules = { ...room.rules, ...rules, title: 'Buildup.io' };
-    if (room.rules.allowBots) syncRoomBots(room);
+    syncLobbyFillers(room);
   }
   if (maxIn != null) {
     const max = Math.min(6, Math.max(2, +maxIn));
@@ -630,7 +683,7 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
       const next = Array.from({ length: max }, (_, i) => room.slots[i] ?? null);
       room.slots = next;
       room.maxPlayers = max;
-      if (room.rules?.allowBots) syncRoomBots(room);
+      syncLobbyFillers(room);
     }
   }
   room.updatedAt = Date.now();
@@ -653,7 +706,7 @@ app.post('/api/rooms/:id/leave', authMiddleware, (req, res) => {
     roomSubs.delete(room.id);
     return res.json({ left: true, room: null });
   }
-  if (room.rules?.allowBots) syncRoomBots(room);
+  syncLobbyFillers(room);
   room.updatedAt = Date.now();
   broadcastRoom(room.id);
   res.json({ room: roomToClient(room, req.user.id), left: true });
@@ -701,7 +754,8 @@ app.post('/api/rooms/:id/rematch', authMiddleware, (req, res) => {
       };
     }
     room.slots = slots;
-    if (room.rules?.allowBots) syncRoomBots(room);
+    room.humanoidBudget = HUMANOID_CAP;
+    syncLobbyFillers(room);
   }
   room.status = 'lobby';
   delete room.gameState;
@@ -742,7 +796,7 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
 
-  if (room.rules?.allowBots) syncRoomBots(room);
+  syncLobbyFillers(room);
   const emptySlots = room.slots.filter(s => !s).length;
   if (emptySlots > 0) {
     const joined = room.slots.filter(Boolean).length;
@@ -751,19 +805,22 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
     });
   }
 
-  const players = room.slots.map((slot, i) => ({
+  const players = room.slots.map(slot => ({
     userId: slot.userId,
     name: slot.name,
     emoji: slot.emoji,
     color: slot.color,
     bot: !!slot.bot,
+    humanoid: !!slot.humanoid,
+    botBrain: slot.botBrain || null,
     isAdmin: slot.userId === room.hostId,
   }));
 
   const humans = players.filter(p => !p.bot).length;
+  const humanoids = players.filter(p => p.humanoid).length;
   if (players.length < 2) return res.status(400).json({ error: 'Need at least 2 players' });
   if (humans < 1) return res.status(400).json({ error: 'Need at least 1 human player' });
-  if (!room.rules?.allowBots && humans < 2) {
+  if (!room.rules?.allowBots && humans < 2 && humanoids === 0) {
     return res.status(400).json({ error: 'Need at least 2 human players (or enable bots)' });
   }
 

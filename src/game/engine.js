@@ -22,6 +22,31 @@ import {
   broadcastStateNow, broadcastDiceRoll, registerStateSync, registerStateImporter,
   registerDiceRollHandler, rebuildDeck,
 } from '../lib/multiplayer.js';
+import {
+  initBots, assignBotBrains, botShouldBuy, botNextBid, botJailDecision,
+  botRunBuildPhase, botEvaluateTrade, botMaybeProposeTrade,
+} from './bots.js';
+import { registerMastermind, mastermindThinkTime } from './mastermind.js';
+
+registerMastermind();
+let botsReady = false;
+function ensureBotsReady() {
+  if (botsReady) return;
+  initBots({
+    S: () => S,
+    TILES: () => TILES,
+    GROUPS: () => GROUPS,
+    log,
+    addOpenTrade,
+    scheduleBotTradeResponse,
+    openTradeDetail,
+    renderAll,
+  });
+  botsReady = true;
+}
+function botThinkMs(p, kind = 'roll') {
+  return p.botBrain === 'mastermind' ? mastermindThinkTime(kind) : 800 + Math.random() * 400;
+}
 
 /* ============================================================
    PROCEDURAL BOARD GENERATOR — any size, country groups
@@ -163,6 +188,8 @@ function exportGameState() {
       userId: p.userId,
       name: p.name,
       bot: p.bot,
+      humanoid: !!p.humanoid,
+      botBrain: p.botBrain || null,
       emoji: p.emoji,
       color: p.color,
       isAdmin: p.isAdmin,
@@ -309,7 +336,7 @@ function postSyncTurn() {
   if (!isMpGame() || isApplyingRemote()) return;
   const p = S.cur;
   if (!p) return;
-  if (p.bot && isMpHost()) setTimeout(botTurn, 900);
+  if (p.bot && isMpHost()) setTimeout(botTurn, 150);
 }
 
 registerStateSync(exportGameState);
@@ -334,6 +361,7 @@ function assertMyTurn() {
 
 function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }) {
   try {
+    ensureBotsReady();
     const per = rules.per;
     S.multiplayer = !!multiplayer;
     S.rules = {
@@ -346,6 +374,8 @@ function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }
       userId: p.userId || null,
       name: p.name,
       bot: p.bot,
+      humanoid: !!p.humanoid,
+      botBrain: p.botBrain || null,
       emoji: p.emoji,
       color: p.color || PLAYER_COLORS[i],
       isAdmin: p.isAdmin ?? i === adminId,
@@ -363,6 +393,7 @@ function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }
       turnEngaged: false,
       turnBonusUsed: false,
     }));
+    assignBotBrains(S.players);
     S.fortune = shuffle(FORTUNE);
     S.treasury = shuffle(TREASURY);
     S.recentTrades = [];
@@ -583,11 +614,11 @@ function renderPlayers(){
     const tags=[p.jail?'⛓️ Jail':'',p.goojf?`🎟${p.goojf>1?'×'+p.goojf:''}`:''].filter(Boolean).join(' · ');
     const loc=!p.dead&&TILES[p.pos]?playerTileLabel(p):'';
     const crown=p.isAdmin?'<span class="p-crown" title="Room admin">👑</span>':'';
-    const botBadge=p.bot?'<span class="p-bot" aria-hidden="true">🤖</span>':'';
+    const botBadge=p.bot&&!p.humanoid?'<span class="p-bot" aria-hidden="true">🤖</span>':'';
     const powerBadge=S.rules.powerCards&&p.powerCards?.length
       ?`<span class="p-power-badge" title="${p.powerCards.length} power card${p.powerCards.length>1?'s':''}">🃏 ${p.powerCards.length}</span>`:'';
-    return `<div class="player-row${i===S.turn&&!p.dead?' current':''}${p.dead?' dead':''}${p.debt?' player-row--debt':''}" style="--pc:${p.color}">
-      <span class="p-av p-av--${i%6}">${p.emoji}</span>
+    return `<div class="player-row${i===S.turn&&!p.dead?' current':''}${p.dead?' dead':''}${p.debt?' player-row--debt':''}${p.humanoid?' player-row--humanoid':''}" style="--pc:${p.color}">
+      <span class="p-av p-av--${i%6}${p.humanoid?' p-av--humanoid':''}">${p.emoji}</span>
       <span class="p-info">
         <span class="p-name">${crown}${p.name}${botBadge}${powerBadge}</span>
         ${loc?`<span class="p-loc">On ${loc}</span>`:''}
@@ -1304,10 +1335,10 @@ function startTurn(){
   else{S.phase='roll';msg(turnMsg(p));}
   renderAll();
   if(isMpGame()){
-    if(p.bot&&isMpHost())setTimeout(botTurn,900);
+    if(p.bot&&isMpHost())setTimeout(botTurn,150);
     return;
   }
-  if(p.bot)setTimeout(botTurn,900);
+  if(p.bot)setTimeout(botTurn,150);
 }
 function endTurn(){
   if(S.over)return;
@@ -1399,7 +1430,7 @@ function resolveTile(p,opts={}){
       if(t.owner==null){
         if(p.bot){
           if(isMpGame()&&!isMpHost()){finishMovePhase(p,again);break;}
-          if(botWantsBuy(p,t)){buyCurrent(p);finishMovePhase(p,again);}
+          if(botShouldBuy(p,t)){buyCurrent(p);finishMovePhase(p,again);}
           else if(S.rules.auction){log(`<b>${p.name}</b> sends ${t.name} to auction.`,p);startAuction(t,{playerId:p.id,again});}
           else{log(`<b>${p.name}</b> passes on ${t.name}.`,p);finishMovePhase(p,again);}
         }else{
@@ -1448,10 +1479,10 @@ function finishMovePhase(p,rollAgain){
   const runBots=!isMpGame()||isMpHost();
   if(rollAgain&&!p.jail){
     S.phase='roll';renderDock();
-    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),900);}
+    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),botThinkMs(p));}
     else msg('Doubles! Roll again.');
   }else if(p.bot){
-    if(runBots)setTimeout(()=>{botBuild(p);endTurn();},700);
+    if(runBots)setTimeout(()=>{botRunBuildPhase(p);botMaybeProposeTrade(p);endTurn();},botThinkMs(p,'build'));
   }else{
     S.phase='end';
     msg(isMyTurn()?'Tap your properties to upgrade — or end your turn.':`Waiting for ${p.name}…`);
@@ -1826,7 +1857,12 @@ function aucStep(){
   if(A.active.length===1&&A.leader===A.active[0]){aucEnd(A.leader);return;}
   if(A.active.length===1&&A.leader==null){
     const p=S.players[A.active[0]];
-    if(p.bot){if(botWantsBid(p,10))aucBid(p,10);else aucEnd(null);return;}
+    if(p.bot){
+      const bid=botNextBid(p,A.tile,A.bid,A.leader);
+      if(bid)aucBid(p,bid);
+      else aucEnd(null);
+      return;
+    }
   }
   const cur=aucCur();
   if(cur.id===A.leader){A.idx++;setTimeout(aucStep,60);return;}
@@ -1834,16 +1870,11 @@ function aucStep(){
     $('aucStatus').textContent=`${cur.name} is thinking…`;aucRender();
     setTimeout(()=>{
       const next=A.bid+(A.bid<100?10:50);
-      if(botWantsBid(cur,next)&&cur.cash>=next)aucBid(cur,next);
+      const bid=botNextBid(cur,A.tile,next,A.leader);
+      if(bid&&cur.cash>=bid)aucBid(cur,bid);
       else aucFold(cur);
-    },800);
+    },botThinkMs(cur,'auction'));
   }else aucRender();
-}
-function botWantsBid(p,amount){
-  const t=A.tile;
-  let val=t.price*S.rules.diff.bidMult;
-  if(t.type==='city'&&groupTiles(t.group).every(x=>x.owner===p.id||x===t))val*=1.6;
-  return amount<=Math.min(val,p.cash-80);
 }
 $('aucB10').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+10);};
 $('aucB50').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+50);};
@@ -2155,14 +2186,6 @@ function executeTrade(from,to,offerIdx,wantIdx,offerCash,wantCash){
   wantTiles.forEach(t=>{t.owner=from.id;});
   return true;
 }
-function botAcceptsTrade(bot,human,offerIdx,wantIdx,offerCash,wantCash){
-  const give=tradeValue(wantIdx.map(i=>TILES[i]),wantCash);
-  const get=tradeValue(offerIdx.map(i=>TILES[i]),offerCash);
-  let bonus=0;
-  wantIdx.forEach(i=>{const t=TILES[i];if(t.type==='city'&&groupTiles(t.group).every(x=>x.owner===bot.id||x===t))bonus+=t.price*0.4;});
-  offerIdx.forEach(i=>{const t=TILES[i];if(t.type==='city'&&groupTiles(t.group).every(x=>x.owner===human.id||x===t))bonus-=t.price*0.3;});
-  return get+bonus>=give*0.92&&bot.cash>=wantCash+50;
-}
 function tradeSideHTML(name,emoji,color,idxs,cash,heading){
   const pi=S.players.findIndex(p=>p.name===name);
   const lines=idxs.map(i=>TILES[i]?.name).filter(Boolean);
@@ -2296,12 +2319,20 @@ function respondBotToTrade(tradeId){
   const trade=getOpenTrade(tradeId);
   if(!trade||trade.status!=='pending')return;
   const from=S.players[trade.fromId],to=S.players[trade.toId];
-  if(botAcceptsTrade(to,from,trade.offerIdx,trade.wantIdx,trade.offerCash,trade.wantCash)){
+  const v=botEvaluateTrade(to,trade);
+  if(v.action==='accept'){
     renderTradeReview(trade,'accepted');
     $('tradeReviewModal')?.classList.remove('hidden');
     finalizeOpenTrade(trade);
     renderAll();
     setTimeout(closeTradeReview,1400);
+  }else if(v.action==='counter'&&v.counter){
+    counterOpenTrade(trade,to,v.counter.offerIdx,v.counter.wantIdx,v.counter.offerCash,v.counter.wantCash);
+    trade.awaitingId=from.id;
+    log(`🔄 <b>${to.name}</b> counters <b>${from.name}</b>'s trade offer.`,to);
+    renderAll();
+    if(from.bot)scheduleBotTradeResponse(trade);
+    else openTradeDetail(trade.id,'incoming');
   }else{
     trade.status='declined';
     trade.awaitingId=null;
@@ -2406,37 +2437,23 @@ function openManage(p){
 }
 
 /* ============================================================
-   BOTS
+   BOTS — see bots.js / mastermind.js
 ============================================================ */
 function botTurn(){
   const p=S.cur;if(S.over||p.dead||!p.bot)return;
   if(isMpGame()&&!isMpHost())return;
-  if(p.jail){
-    if(p.goojf>0){useJailCard(p);return;}
-    if(p.cash>=400){payJailFine(p);return;}
-    jailRoll(p);return;
-  }
-  msg(`${p.name} is rolling…`);doRoll(p);
-}
-function botWantsBuy(p,t){
-  const completes=t.type==='city'&&groupTiles(t.group).every(x=>x.owner===p.id||x===t);
-  return p.cash>=t.price+(completes?0:S.rules.diff.buyBuf);
-}
-function botBuild(p){
-  let guard=40;
-  while(guard--){
-    const b=ownedBy(p).filter(t=>t.type==='city'&&ownsGroup(p,t.group)&&!t.mortgaged&&t.houses<5&&groupTiles(t.group).every(x=>!x.mortgaged))
-      .sort((x,y)=>x.houses-y.houses||x.houseCost-y.houseCost)[0];
-    if(b&&p.cash>=b.houseCost+S.rules.diff.buildRes){
-      p.cash-=b.houseCost;b.houses++;
-      log(`🏗️ <b>${p.name}</b> builds ${b.houses===5?'a hotel':'a house'} in ${b.name}.`,p);
-    }else break;
-  }
-  if(S.rules.mortgage)ownedBy(p).filter(t=>t.mortgaged).forEach(t=>{
-    const cost=Math.ceil(t.price/2*1.1);
-    if(p.cash>cost+500){p.cash-=cost;t.mortgaged=false;log(`<b>${p.name}</b> lifts the mortgage on ${t.name}.`,p);}
-  });
-  renderAll();
+  const act=()=>{
+    if(p.jail){
+      const j=botJailDecision(p);
+      if(j==='card')useJailCard(p);
+      else if(j==='pay')payJailFine(p);
+      else jailRoll(p);
+      return;
+    }
+    msg(`${p.name} is rolling…`);
+    doRoll(p);
+  };
+  setTimeout(act,botThinkMs(p,'roll'));
 }
 
 /* ============================================================

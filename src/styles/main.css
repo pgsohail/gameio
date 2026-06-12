@@ -3246,7 +3246,13 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
 }
 .room-card__id{font-size:18px;font-weight:800;letter-spacing:.08em;color:#fff}
 .room-card__meta{font-size:10px;font-weight:700;color:rgba(94,234,212,.85);letter-spacing:.02em}
-.room-card--public{border-color:rgba(94,234,212,.22)}
+.room-slot--humanoid{box-shadow:0 0 0 2px #ff1744,0 2px 10px color-mix(in srgb,var(--pc,#666) 35%,transparent)}
+.room-player-item--humanoid .room-player-item__tok--humanoid{
+  box-shadow:0 0 0 2px #ff1744,0 3px 12px color-mix(in srgb,var(--pc,#666) 40%,transparent);
+}
+.player-row--humanoid .p-av--humanoid{
+  box-shadow:0 0 0 2px #ff1744,0 2px 10px color-mix(in srgb,var(--pc,#666) 45%,transparent);
+}
 .room-card__slots{display:flex;gap:6px;flex-wrap:wrap}
 .room-slot{
   width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:14px;
