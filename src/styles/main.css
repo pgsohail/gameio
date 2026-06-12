@@ -1560,21 +1560,20 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .player-row{
   display:grid;grid-template-columns:52px 1fr auto;gap:11px;align-items:center;
   padding:11px 12px 11px 10px;border-radius:12px;
-  background:linear-gradient(135deg,rgba(255,255,255,.08),rgba(255,255,255,.03));
-  border:1px solid rgba(255,255,255,.1);
-  border-left:4px solid var(--pc,#888);
-  box-shadow:0 5px 16px rgba(0,0,0,.24);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--pc,#888) 48%,rgba(12,10,18,.88)),color-mix(in srgb,var(--pc,#888) 22%,rgba(8,6,14,.92)));
+  border:1px solid color-mix(in srgb,var(--pc,#888) 45%,rgba(255,255,255,.12));
+  border-left:5px solid var(--pc,#888);
+  box-shadow:0 5px 16px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.08);
   transition:box-shadow .25s,transform .2s,background .2s;
 }
 .player-row.current{
-  background:linear-gradient(135deg,rgba(255,255,255,.13),rgba(255,255,255,.06));
-  border-color:rgba(255,255,255,.16);
-  border-left-color:var(--pc,#888);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--pc,#888) 62%,rgba(12,10,18,.82)),color-mix(in srgb,var(--pc,#888) 30%,rgba(8,6,14,.9)));
+  border-color:color-mix(in srgb,var(--pc,#888) 65%,rgba(255,255,255,.2));
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb,var(--pc,#888) 35%,transparent),
-    0 0 28px color-mix(in srgb,var(--pc,#888) 38%,transparent),
-    0 0 48px color-mix(in srgb,var(--pc,#888) 18%,transparent),
-    0 6px 20px rgba(0,0,0,.3);
+    inset 0 0 0 1px color-mix(in srgb,var(--pc,#888) 45%,transparent),
+    0 0 28px color-mix(in srgb,var(--pc,#888) 42%,transparent),
+    0 0 48px color-mix(in srgb,var(--pc,#888) 22%,transparent),
+    0 6px 20px rgba(0,0,0,.32);
 }
 .player-row.dead{opacity:.4;filter:grayscale(.55)}
 /* unique player-color badges — shape varies by slot */
@@ -1648,10 +1647,11 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px));
   -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px));
 }
-.turn-timer__value{
-  position:relative;font-family:'Marcellus',serif;font-size:22px;font-weight:700;
-  color:#fff;text-shadow:0 0 12px rgba(20,184,166,.35);
+.turn-timer__icon{
+  position:relative;font-size:28px;line-height:1;
+  filter:drop-shadow(0 0 10px rgba(20,184,166,.35));
 }
+.turn-timer--passive .turn-timer__ring{opacity:.85}
 .turn-timer__hint{
   font-size:11px;color:rgba(255,255,255,.5);text-align:center;line-height:1.4;margin:0 0 12px;
 }
@@ -2217,8 +2217,33 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .trade-review-head h2{
   font-family:'Marcellus',serif;font-size:21px;font-weight:400;margin:0;color:var(--cream);
 }
+.trade-review-parties{padding:0 20px 12px}
+.trade-simple-grid{
+  display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:stretch;
+}
+.trade-simple-mid{
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;color:rgba(255,255,255,.35);padding-top:28px;
+}
+.trade-simple-side{
+  padding:12px;border-radius:12px;text-align:left;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--tc,#888) 38%,rgba(0,0,0,.35)),rgba(0,0,0,.25));
+  border:1px solid color-mix(in srgb,var(--tc,#888) 40%,rgba(255,255,255,.12));
+}
+.trade-simple-side__head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.trade-simple-av{width:36px;height:36px;font-size:18px}
+.trade-simple-side__name{font-weight:800;font-size:14px;color:#fff}
+.trade-simple-side__label{
+  font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  color:rgba(255,255,255,.5);margin:0 0 6px;
+}
+.trade-simple-side__list{
+  margin:0;padding:0 0 0 16px;font-size:13px;font-weight:700;color:#fff;line-height:1.45;
+}
+.trade-simple-side__list li{margin-bottom:3px}
+.trade-simple-none{list-style:none;margin-left:-16px;color:rgba(255,255,255,.4);font-style:italic}
 .trade-review-parties{
-  display:flex;flex-direction:column;gap:8px;padding:0 20px 12px;
+  display:flex;flex-direction:column;gap:8px;
 }
 .trade-review-pane{
   display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;

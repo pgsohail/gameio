@@ -22,15 +22,28 @@ function countrySegments(cities) {
   return segs;
 }
 
-/** Pixel span of cities along the rail inside #countryLayer. */
-function railSpan(run, layer) {
-  const lr = layer.getBoundingClientRect();
-  const rects = run.map((c) => c.el.getBoundingClientRect());
-  const left = Math.min(...rects.map((r) => r.left)) - lr.left;
-  const right = Math.max(...rects.map((r) => r.right)) - lr.left;
-  const top = Math.min(...rects.map((r) => r.top)) - lr.top;
-  const bottom = Math.max(...rects.map((r) => r.bottom)) - lr.top;
+/** Pixel span along the rail using layout offsets (stable under scene scale). */
+function railSpan(run, board) {
+  const bx = board?.offsetLeft ?? 0;
+  const by = board?.offsetTop ?? 0;
+  const rects = run.map((c) => {
+    const el = c.el;
+    return {
+      left: el.offsetLeft + bx,
+      top: el.offsetTop + by,
+      right: el.offsetLeft + el.offsetWidth + bx,
+      bottom: el.offsetTop + el.offsetHeight + by,
+    };
+  });
+  const left = Math.min(...rects.map((r) => r.left));
+  const right = Math.max(...rects.map((r) => r.right));
+  const top = Math.min(...rects.map((r) => r.top));
+  const bottom = Math.max(...rects.map((r) => r.bottom));
   return { left, right, top, bottom, width: right - left, height: bottom - top };
+}
+
+function phaseForIso(iso) {
+  return String(iso || 'x').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0) % 10;
 }
 
 export function renderCountryBrackets(tiles, groups) {
@@ -53,11 +66,11 @@ export function renderCountryBrackets(tiles, groups) {
       const fallback = group.color || '#666';
 
       countrySegments(cities).forEach((seg) => {
-        const span = railSpan(seg.cities, layer);
+        const span = railSpan(seg.cities, board);
         const horiz = seg.side === 'top' || seg.side === 'bottom';
         const from = horiz ? span.left : span.top;
         const len = horiz ? span.width : span.height;
-        addClothBand(layer, seg.side, from, len, iso, fallback);
+        addClothBand(layer, seg.side, from, len, iso, fallback, phaseForIso(iso));
       });
     });
 
@@ -65,10 +78,15 @@ export function renderCountryBrackets(tiles, groups) {
 }
 
 let _railRaf = 0;
+let _bracketKey = '';
 
-export function scheduleCountryBrackets(tiles, groups) {
+export function scheduleCountryBrackets(tiles, groups, { force = false } = {}) {
+  const edge = document.documentElement.style.getPropertyValue('--edge') || '';
+  const key = `${tiles?.length || 0}:${edge}`;
+  if (!force && key === _bracketKey && document.querySelector('#countryLayer .cloth-flag')) return;
   cancelAnimationFrame(_railRaf);
   _railRaf = requestAnimationFrame(() => {
-    requestAnimationFrame(() => renderCountryBrackets(tiles, groups));
+    _bracketKey = key;
+    renderCountryBrackets(tiles, groups);
   });
 }

@@ -504,8 +504,8 @@ function initBoard(per,{preview=false}={}){
   if(table) table.insertBefore(countryLayer,board);
 
   fitScene();
-  window.addEventListener('resize', () => { fitScene(); scheduleCountryBrackets(TILES, GROUPS, S.players); });
-  scheduleCountryBrackets(TILES, GROUPS, S.players);
+  window.addEventListener('resize', () => { fitScene(); scheduleCountryBrackets(TILES, GROUPS, { force: true }); });
+  scheduleCountryBrackets(TILES, GROUPS, { force: true });
 }
 function fitScene(){
   const t=$('table');if(!t||!$('board')?.firstChild)return;
@@ -513,7 +513,7 @@ function fitScene(){
   const logW=Math.min(220,innerWidth*0.2);
   const s=Math.min((innerWidth-logW-48)/W,(innerHeight-96)/H,1);
   document.documentElement.style.setProperty('--scene-scale',String(s));
-  scheduleCountryBrackets(TILES,GROUPS,S.players);
+  scheduleCountryBrackets(TILES, GROUPS, { force: true });
 }
 document.addEventListener('click',e=>{
   if(e.target.id==='logBtn'){
@@ -556,7 +556,6 @@ function renderAll(){
   renderDock();
   renderTradeCard();
   renderPot();
-  scheduleCountryBrackets(TILES,GROUPS,S.players);
   if (isMultiplayerActive() && !isApplyingRemote()) queueStateBroadcast();
 }
 function localHuman(){
@@ -695,28 +694,23 @@ function renderActionsCard(){
   const cur=S.cur;
   const elapsed=Math.max(0,Date.now()-(S.turnStartedAt||Date.now()));
   const left=Math.max(0,TURN_LIMIT_MS-elapsed);
-  const secs=Math.ceil(left/1000);
-  const m=Math.floor(secs/60);
-  const s=secs%60;
-  const val=$('turnTimerVal');
   const ring=$('turnTimerRing');
   const hint=$('turnTimerHint');
   const pct=Math.min(100,(elapsed/TURN_LIMIT_MS)*100);
-  if(val)val.textContent=`${m}:${String(s).padStart(2,'0')}`;
   if(ring)ring.style.setProperty('--pct',`${pct}`);
   if(hint){
     hint.classList.remove('turn-timer__hint--urgent');
     if(cur?.dead)hint.textContent='';
     else if(cur?.id===human?.id){
       if(left<=TURN_ENGAGE_WARN_MS&&!cur.turnEngaged){
-        hint.textContent=`⚠️ ${secs}s left — roll or act now!`;
+        hint.textContent='Hurry — make a move soon or you\'ll be removed from the game.';
         hint.classList.add('turn-timer__hint--urgent');
       }else if(left<=TURN_ENGAGE_WARN_MS){
-        hint.textContent=`You're active — ${secs}s left on your turn.`;
-      }else hint.textContent='Your turn — roll or act before time runs out.';
+        hint.textContent='You\'re active — keep playing before time runs out.';
+      }else hint.textContent='A turn timer is running. Make a move in time or you\'ll be kicked out.';
     }else if(left<=TURN_ENGAGE_WARN_MS&&!cur?.turnEngaged){
-      hint.textContent=`${cur?.name||'Player'} has ${secs}s — may be removed if idle.`;
-    }else hint.textContent=`${cur?.name||'Player'}'s turn`;
+      hint.textContent=`${cur?.name||'Player'} needs to move soon or they\'ll be removed.`;
+    }else hint.textContent=`${cur?.name||'Player'}'s turn — timer is running.`;
   }
   const kickBtn=$('voteKickBtn');
   const status=$('voteKickStatus');
@@ -1898,13 +1892,6 @@ function tradeStatusLabel(t){
   }
   return t.status;
 }
-function tradeCashBarHTML(label,amount,wallet){
-  const pct=wallet>0?Math.min(100,Math.round((amount/wallet)*100)):0;
-  return `<div class="trade-cash-bar">
-    <div class="trade-cash-bar__row"><span>${tradeEsc(label)}</span><strong>${fmt(amount)}</strong></div>
-    <div class="trade-cash-bar__track"><span style="width:${pct}%"></span></div>
-  </div>`;
-}
 function maintainOpenTrades(){
   if(isMpGame()&&!isMpHost())return;
   const open=S.openTrades||[];
@@ -2176,21 +2163,20 @@ function botAcceptsTrade(bot,human,offerIdx,wantIdx,offerCash,wantCash){
   offerIdx.forEach(i=>{const t=TILES[i];if(t.type==='city'&&groupTiles(t.group).every(x=>x.owner===human.id||x===t))bonus-=t.price*0.3;});
   return get+bonus>=give*0.92&&bot.cash>=wantCash+50;
 }
-function tradeItemsListHTML(idxs,cash){
-  const items=idxs.map(i=>TILES[i]?.name).filter(Boolean);
-  if(cash)items.push(`${fmt(cash)} cash`);
-  if(!items.length)return '<span class="trade-review-none">Nothing</span>';
-  return `<ul class="trade-review-list">${items.map(n=>`<li>${tradeEsc(n)}</li>`).join('')}</ul>`;
-}
-function tradeReviewPaneHTML(name,emoji,color,label,idxs,cash){
+function tradeSideHTML(name,emoji,color,idxs,cash,heading){
   const pi=S.players.findIndex(p=>p.name===name);
-  return `<div class="trade-review-pane">
-    <span class="trade-review-av p-av p-av--${Math.max(0,pi)%6}" style="--pc:${color}">${emoji}</span>
-    <div class="trade-review-pane__meta">
-      <span class="trade-review-pane__label">${tradeEsc(label)}</span>
-      <span class="trade-review-pane__name">${tradeEsc(name)}</span>
-      <div class="trade-review-pane__items">${tradeItemsListHTML(idxs,cash)}</div>
+  const lines=idxs.map(i=>TILES[i]?.name).filter(Boolean);
+  if(cash)lines.push(fmt(cash));
+  const body=lines.length
+    ?lines.map(n=>`<li>${tradeEsc(n)}</li>`).join('')
+    :'<li class="trade-simple-none">Nothing</li>';
+  return `<div class="trade-simple-side" style="--tc:${color}">
+    <div class="trade-simple-side__head">
+      <span class="trade-simple-av p-av p-av--${Math.max(0,pi)%6}" style="--pc:${color}">${emoji}</span>
+      <span class="trade-simple-side__name">${tradeEsc(name)}</span>
     </div>
+    <p class="trade-simple-side__label">${tradeEsc(heading)}</p>
+    <ul class="trade-simple-side__list">${body}</ul>
   </div>`;
 }
 function openCompletedTradeView(idx){
@@ -2200,12 +2186,13 @@ function openCompletedTradeView(idx){
   const histWrap=$('tradeReviewHistory')?.parentElement;
   if(histWrap)histWrap.classList.add('hidden');
   const parties=$('tradeReviewParties');
-  if(parties)parties.innerHTML=
-    tradeReviewPaneHTML(t.fromName,t.fromEmoji,t.fromColor,'Gives',t.offerIdx,t.offerCash)+
-    '<div class="trade-review-divider" aria-hidden="true">⇄</div>'+
-    tradeReviewPaneHTML(t.toName,t.toEmoji,t.toColor,'Gets',t.wantIdx,t.wantCash);
-  $('tradeReviewEyebrow').textContent='Past trade';
-  $('tradeReviewTitle').textContent=`${t.fromName} traded with ${t.toName}`;
+  if(parties)parties.innerHTML=`<div class="trade-simple-grid">
+    ${tradeSideHTML(t.fromName,t.fromEmoji,t.fromColor,t.offerIdx,t.offerCash,'Gave')}
+    <div class="trade-simple-mid" aria-hidden="true">⇄</div>
+    ${tradeSideHTML(t.toName,t.toEmoji,t.toColor,t.wantIdx,t.wantCash,'Received')}
+  </div>`;
+  $('tradeReviewEyebrow').textContent='Done';
+  $('tradeReviewTitle').textContent=`${t.fromName} ↔ ${t.toName}`;
   const note=$('tradeReviewNote');
   if(note)note.textContent='This deal is finished.';
   $('tradeReviewActions')?.classList.add('hidden');
@@ -2221,51 +2208,40 @@ function renderTradeReview(trade,mode){
   viewingTradeId=trade.id;
   const from=S.players[trade.fromId],to=S.players[trade.toId];
   const histWrap=$('tradeReviewHistory')?.parentElement;
-  if(histWrap)histWrap.classList.remove('hidden');
+  if(histWrap)histWrap.classList.add('hidden');
   const parties=$('tradeReviewParties');
   const note=$('tradeReviewNote');
   const actions=$('tradeReviewActions');
   const solo=$('tradeReviewSolo');
-  const hist=$('tradeReviewHistory');
-  if(parties)parties.innerHTML=
-    tradeReviewPaneHTML(from.name,from.emoji,from.color,'Gives',trade.offerIdx,trade.offerCash)+
-    tradeCashBarHTML(`${from.name} offers cash`,trade.offerCash,from.cash)+
-    '<div class="trade-review-divider" aria-hidden="true">⇄</div>'+
-    tradeReviewPaneHTML(to.name,to.emoji,to.color,'Gets',trade.wantIdx,trade.wantCash)+
-    tradeCashBarHTML(`${to.name} offers cash`,trade.wantCash,to.cash);
-  if(hist){
-    hist.innerHTML=trade.history.map(h=>{
-      const by=S.players[h.by];
-      const detail=h.offerIdx
-        ?`${tradeEsc(by?.name||'?')}: ${tradeEsc(tradeTileSummary(h.offerIdx,h.offerCash))} ⇄ ${tradeEsc(tradeTileSummary(h.wantIdx,h.wantCash))}`
-        :tradeEsc(h.text||'');
-      return `<div class="trade-hist-row"><span class="trade-hist-round">R${h.round}</span><span>${detail}</span></div>`;
-    }).join('');
-  }
+  if(parties)parties.innerHTML=`<div class="trade-simple-grid">
+    ${tradeSideHTML(from.name,from.emoji,from.color,trade.offerIdx,trade.offerCash,`${from.name} gives`)}
+    <div class="trade-simple-mid" aria-hidden="true">⇄</div>
+    ${tradeSideHTML(to.name,to.emoji,to.color,trade.wantIdx,trade.wantCash,`${to.name} gives`)}
+  </div>`;
   const canRespond=trade.status==='pending'&&human&&human.id===trade.awaitingId&&!to.bot;
   const canNegotiate=human&&(canRespond||trade.status==='declined'&&(human.id===trade.fromId||human.id===trade.toId));
   actions?.classList.toggle('hidden',!canRespond);
   solo?.classList.toggle('hidden',trade.status!=='declined'||canRespond);
   if(mode==='waiting'||(!mode&&trade.status==='pending'&&to.bot)){
-    $('tradeReviewEyebrow').textContent='Active trade';
-    $('tradeReviewTitle').textContent=`${from.name} offered ${to.name}`;
-    if(note)note.textContent=`${to.name} is deciding. ${from.name} gives what's listed on the left; ${to.name} would give what's on the right.`;
+    $('tradeReviewEyebrow').textContent='Trade offer';
+    $('tradeReviewTitle').textContent=`${from.name} → ${to.name}`;
+    if(note)note.textContent='Waiting for a reply.';
   }else if(mode==='incoming'||canRespond){
-    $('tradeReviewEyebrow').textContent='Needs your answer';
+    $('tradeReviewEyebrow').textContent='Trade offer';
     $('tradeReviewTitle').textContent=`${from.name} wants to trade`;
-    if(note)note.textContent=`Left = ${from.name} gives · Right = you give. Accept, reject, or negotiate.`;
+    if(note)note.textContent='Accept, change the offer, or say no thanks.';
   }else if(mode==='declined'||trade.status==='declined'){
-    $('tradeReviewEyebrow').textContent='Trade declined';
+    $('tradeReviewEyebrow').textContent='Declined';
     $('tradeReviewTitle').textContent=`${to.name} said no`;
-    if(note)note.textContent='You can negotiate a new offer or close this.';
+    if(note)note.textContent='Send a new offer or close.';
   }else if(mode==='accepted'){
-    $('tradeReviewEyebrow').textContent='Trade complete';
-    $('tradeReviewTitle').textContent='Deal done!';
-    if(note)note.textContent=`${from.name} and ${to.name} completed the trade.`;
+    $('tradeReviewEyebrow').textContent='Done';
+    $('tradeReviewTitle').textContent='Trade complete';
+    if(note)note.textContent=`${from.name} and ${to.name} swapped assets.`;
   }else{
-    $('tradeReviewEyebrow').textContent='Active trade';
+    $('tradeReviewEyebrow').textContent='Trade offer';
     $('tradeReviewTitle').textContent=`${from.name} ↔ ${to.name}`;
-    if(note)note.textContent=`Round ${trade.round} · ${tradeStatusLabel(trade)} · Left gives / Right gets.`;
+    if(note)note.textContent=tradeStatusLabel(trade);
   }
   if(actions&&!actions.classList.contains('hidden')){
     $('tradeAccept').classList.remove('hidden');

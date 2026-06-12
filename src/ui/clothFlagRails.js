@@ -136,7 +136,7 @@ export function stopClothFlags() {
  * @param {string} iso     country iso
  * @param {string} [fallback] CSS color if image fails
  */
-export function addClothBand(layer, side, fromPx, lenPx, iso, fallback = '#666') {
+export function addClothBand(layer, side, fromPx, lenPx, iso, fallback = '#666', phase = 0) {
   const code = flagCode(iso);
   if (!code || lenPx < 4) return;
 
@@ -187,7 +187,7 @@ export function addClothBand(layer, side, fromPx, lenPx, iso, fallback = '#666')
     rail,
     fallback,
     warped: null,
-    phase: Math.random() * 10,
+    phase: typeof phase === 'number' ? phase : 0,
   };
 
   img.onload = () => {

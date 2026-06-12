@@ -451,11 +451,11 @@
           <span class="hud-card-icon" aria-hidden="true">⏱️</span>
           <h4 class="player-actions-title">Turn timer</h4>
         </div>
-        <div class="turn-timer" id="turnTimer">
+        <div class="turn-timer turn-timer--passive" id="turnTimer">
           <span class="turn-timer__ring" id="turnTimerRing"></span>
-          <span class="turn-timer__value" id="turnTimerVal">2:00</span>
+          <span class="turn-timer__icon" aria-hidden="true">⏱️</span>
         </div>
-        <p class="turn-timer__hint" id="turnTimerHint">Waiting for roll…</p>
+        <p class="turn-timer__hint" id="turnTimerHint">Make a move in time or you&apos;ll be kicked out.</p>
         <div class="player-actions-btns">
           <button type="button" class="vote-kick-btn hidden" id="voteKickBtn">
             <span aria-hidden="true">🗳️</span> Vote kick
@@ -651,13 +651,13 @@
     <p class="trade-review-note" id="tradeReviewNote"></p>
     <div class="trade-review-actions" id="tradeReviewActions">
       <button class="btn ghost hidden" id="tradeDelete" type="button">Delete</button>
-      <button class="btn ghost" id="tradeReject" type="button">Reject</button>
-      <button class="btn ghost" id="tradeNegotiate" type="button">Negotiate</button>
+      <button class="btn ghost" id="tradeReject" type="button">No thanks</button>
+      <button class="btn ghost" id="tradeNegotiate" type="button">Change offer</button>
       <button class="btn vio" id="tradeAccept" type="button">Accept</button>
     </div>
     <div class="trade-review-actions trade-review-actions--solo hidden" id="tradeReviewSolo">
       <button class="btn ghost" id="tradeReviewClose" type="button">Close</button>
-      <button class="btn vio" id="tradeReviewNegotiate" type="button">Negotiate</button>
+      <button class="btn vio" id="tradeReviewNegotiate" type="button">Change offer</button>
     </div>
   </div></div>
 
