@@ -46,6 +46,7 @@ let gamePausedAway = false;
 let wsReconnectTimer = null;
 let lobbyPollTimer = null;
 let prevSlotSnapshot = null;
+let lobbyWasSeated = false;
 let botSoundQueue = 0;
 
 const DIFF_HINTS = {
@@ -369,6 +370,7 @@ function exitBoardLobby() {
   gameStarted = false;
   currentRoomId = null;
   lastRoomRules = null;
+  lobbyWasSeated = false;
   const url = new URL(location.href);
   url.searchParams.delete('room');
   history.replaceState(null, '', url.pathname + url.search);
@@ -472,6 +474,27 @@ function playLobbySlotSounds(room) {
 function renderBoardLobby(room) {
   const u = getUser();
   const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
+  if (lobbyWasSeated && !inRoom && !gameStarted) {
+    lobbyWasSeated = false;
+    const msg = room.kicked?.reason === 'admin'
+      ? 'The admin removed you from this room.'
+      : 'You are no longer in this room.';
+    alert(msg);
+    exitBoardLobby();
+    showView('home');
+    renderRoomList();
+    return;
+  }
+  lobbyWasSeated = inRoom;
+
+  if (!inRoom && room.kicked?.reason === 'admin') {
+    alert('The admin removed you from this room.');
+    exitBoardLobby();
+    showView('home');
+    renderRoomList();
+    return;
+  }
+
   const isHost = u && room.hostId === u.id;
   const full = room.slots.every(Boolean);
   const needsJoin = !inRoom && !full;
@@ -486,16 +509,22 @@ function renderBoardLobby(room) {
   $('boardRoomCode').textContent = room.id;
   $('boardWaitCount').textContent = `${humans} human${humans === 1 ? '' : 's'} · ${total}/${room.maxPlayers}`;
   $('boardWaitingSlots').innerHTML = slotAvatars(room.slots, room.maxPlayers);
-  $('boardPlayerList').innerHTML = room.slots.filter(Boolean).map(p => `
+  $('boardPlayerList').innerHTML = room.slots.map((p, i) => {
+    if (!p) return '';
+    const canKick = isHost && !gameStarted && !p.isHost;
+    return `
     <li class="room-player-item${p.bot ? ' room-player-item--bot' : ''}">
       <span class="room-player-item__tok" style="--pc:${esc(p.color)}">${p.bot ? '🤖' : p.emoji}</span>
       <span class="room-player-item__meta">
         <span class="room-player-item__name">${esc(p.name)}</span>
-        ${p.isHost ? '<span class="room-player-item__badge">Admin</span>' : ''}
-        ${p.bot ? '<span class="room-player-item__badge room-player-item__badge--bot">Bot</span>' : ''}
+        <span class="room-player-item__badges">
+          ${p.isHost ? '<span class="room-player-item__badge">Admin</span>' : ''}
+          ${p.bot ? '<span class="room-player-item__badge room-player-item__badge--bot">Bot</span>' : ''}
+        </span>
       </span>
-    </li>
-  `).join('') || '<li class="room-player-item room-player-item--empty">Waiting for players…</li>';
+      ${canKick ? `<button type="button" class="room-player-kick" data-slot="${i}" title="Remove from room" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}
+    </li>`;
+  }).filter(Boolean).join('') || '<li class="room-player-item room-player-item--empty">Waiting for players…</li>';
 
   applyBoardRules(room.rules, { isHost });
 
@@ -585,6 +614,10 @@ async function joinRoom(id) {
   id = String(id || '').trim().toLowerCase();
   try {
     const { room: existing } = await roomsApi.get(id);
+    if (existing.kicked?.reason === 'admin') {
+      alert('The admin removed you from this room.');
+      return;
+    }
     const alreadyIn = existing.slots.some(s => s?.userId === u.id);
     if (alreadyIn) {
       enterBoardLobby(existing);
@@ -599,7 +632,20 @@ async function joinRoom(id) {
     history.replaceState(null, '', roomLink(id));
     enterBoardLobby(room);
   } catch (e) {
-    alert(e.message || 'Could not join room');
+    const msg = e.message === 'removed'
+      ? 'The admin removed you from this room.'
+      : (e.message || 'Could not join room');
+    alert(msg);
+  }
+}
+
+async function kickLobbyMember(slotIndex) {
+  if (!currentRoomId || gameStarted) return;
+  try {
+    const { room } = await roomsApi.kick(currentRoomId, slotIndex);
+    renderBoardLobby(room);
+  } catch (e) {
+    alert(e.message || 'Could not remove player');
   }
 }
 
@@ -619,7 +665,10 @@ async function confirmBoardJoin() {
     history.replaceState(null, '', roomLink(currentRoomId));
     renderBoardLobby(room);
   } catch (e) {
-    alert(e.message || 'Could not join');
+    const msg = e.message === 'removed'
+      ? 'The admin removed you from this room.'
+      : (e.message || 'Could not join');
+    alert(msg);
   }
 }
 
@@ -1311,6 +1360,12 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('boardLaunchBtn')?.addEventListener('click', launchWaitingRoom);
   $('boardCopyLink')?.addEventListener('click', copyBoardLink);
   $('boardJoinBtn')?.addEventListener('click', confirmBoardJoin);
+  $('boardPlayerList')?.addEventListener('click', e => {
+    const btn = e.target.closest('.room-player-kick');
+    if (!btn) return;
+    e.preventDefault();
+    kickLobbyMember(+btn.dataset.slot);
+  });
   $('boardJoinToken')?.addEventListener('click', ev => {
     ev.stopPropagation();
     showTokGrid($('boardJoinToken'), e => { boardJoinEmoji = e; });

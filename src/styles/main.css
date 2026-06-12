@@ -3016,7 +3016,15 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   box-shadow:0 3px 12px color-mix(in srgb,var(--pc,#666) 40%,transparent);
 }
 .room-player-item__meta{flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.room-player-item__name{font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room-player-item__badges{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.room-player-item__name{font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.room-player-kick{
+  flex-shrink:0;width:30px;height:30px;border-radius:8px;border:1px solid rgba(255,100,100,.35);
+  background:rgba(255,80,80,.12);color:#ff8a8a;font-size:14px;font-weight:800;cursor:pointer;
+  display:grid;place-items:center;line-height:1;transition:background .15s,border-color .15s;
+}
+.room-player-kick:hover{background:rgba(255,80,80,.22);border-color:rgba(255,120,120,.55)}
+.room-player-kick:active{transform:scale(.94)}
 .room-player-item__badge{
   flex-shrink:0;font-size:8px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
   padding:4px 8px;border-radius:999px;background:rgba(255,214,0,.18);color:#FFD740;

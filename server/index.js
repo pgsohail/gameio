@@ -158,6 +158,7 @@ function findJoinablePublicRoom(userId) {
   return [...rooms.values()]
     .filter(r => !r.private && r.status === 'lobby')
     .filter(r => !r.slots.some(s => s?.userId === userId))
+    .filter(r => !r.kicked?.[userId])
     .filter(r => r.slots.some(s => !s))
     .sort((a, b) => {
       const ah = humanCount(a);
@@ -171,6 +172,9 @@ function findJoinablePublicRoom(userId) {
 }
 
 function seatUserInRoom(room, user, { emoji, color } = {}) {
+  if (room.kicked?.[user.id]) {
+    return { ok: false, error: 'removed' };
+  }
   if (room.slots.some(s => s?.userId === user.id)) {
     return { ok: true, already: true };
   }
@@ -245,14 +249,16 @@ function roomToClient(room, viewerId = null) {
     base.gameState = room.gameState || null;
     base.stateSeq = room.stateSeq || 0;
     if (viewerId) {
-      const kicked = room.kicked?.[viewerId];
-      if (kicked) base.kicked = kicked;
       const absent = room.absent?.[viewerId];
       if (absent) {
         base.rejoinUntil = absent.until;
         base.rejoinSecondsLeft = Math.max(0, Math.ceil((absent.until - Date.now()) / 1000));
       }
     }
+  }
+  if (viewerId) {
+    const kicked = room.kicked?.[viewerId];
+    if (kicked) base.kicked = kicked;
   }
   return base;
 }
@@ -315,16 +321,9 @@ function processAbsentTimeouts() {
 const BOT_EMOJIS = ['🤖', '🦾', '👾', '🎮', '⚡', '🔮'];
 const BOT_COLORS = ['#78909C', '#607D8B', '#546E7A', '#90A4AE', '#B0BEC5', '#455A64'];
 
-function removeBots(room) {
-  room.slots = room.slots.map(s => (s?.bot ? null : s));
-}
-
 function syncRoomBots(room) {
-  if (!room.rules?.allowBots) {
-    removeBots(room);
-    return;
-  }
-  let n = 1;
+  if (!room.rules?.allowBots) return;
+  let n = room.slots.filter(s => s?.bot).length + 1;
   for (let i = 0; i < room.slots.length; i++) {
     if (!room.slots[i]) {
       room.slots[i] = {
@@ -338,6 +337,27 @@ function syncRoomBots(room) {
       n += 1;
     }
   }
+}
+
+function kickLobbySlot(room, hostId, slotIndex) {
+  if (room.status !== 'lobby') return { ok: false, error: 'Game already started' };
+  if (room.hostId !== hostId) return { ok: false, error: 'Host only' };
+  const idx = +slotIndex;
+  if (!Number.isInteger(idx) || idx < 0 || idx >= room.slots.length) {
+    return { ok: false, error: 'Invalid seat' };
+  }
+  const slot = room.slots[idx];
+  if (!slot) return { ok: false, error: 'Seat is empty' };
+  if (!slot.bot && slot.userId === hostId) {
+    return { ok: false, error: 'Cannot kick yourself' };
+  }
+  room.slots[idx] = null;
+  if (!slot.bot) {
+    room.kicked = room.kicked || {};
+    room.kicked[slot.userId] = { reason: 'admin', at: Date.now() };
+  }
+  room.updatedAt = Date.now();
+  return { ok: true };
 }
 
 function transferHost(room) {
@@ -583,6 +603,9 @@ app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   pruneRooms();
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
+  if (room.kicked?.[req.user.id]) {
+    return res.status(403).json({ error: 'removed', kicked: room.kicked[req.user.id] });
+  }
   if (room.slots.some(s => s?.userId === req.user.id)) {
     return res.json({ room: roomToClient(room, req.user.id) });
   }
@@ -598,10 +621,8 @@ app.patch('/api/rooms/:id', authMiddleware, (req, res) => {
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
   const { rules, maxPlayers: maxIn } = req.body || {};
   if (rules && typeof rules === 'object') {
-    const prevBots = !!room.rules.allowBots;
     room.rules = { ...room.rules, ...rules, title: 'Buildup.io' };
     if (room.rules.allowBots) syncRoomBots(room);
-    else if (prevBots) removeBots(room);
   }
   if (maxIn != null) {
     const max = Math.min(6, Math.max(2, +maxIn));
@@ -636,6 +657,17 @@ app.post('/api/rooms/:id/leave', authMiddleware, (req, res) => {
   room.updatedAt = Date.now();
   broadcastRoom(room.id);
   res.json({ room: roomToClient(room, req.user.id), left: true });
+});
+
+app.post('/api/rooms/:id/kick', authMiddleware, (req, res) => {
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
+  if (!room || room.status !== 'lobby') {
+    return res.status(404).json({ error: 'Room not found or game started' });
+  }
+  const result = kickLobbySlot(room, req.user.id, req.body?.slotIndex);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  broadcastRoom(room.id);
+  res.json({ room: roomToClient(room, req.user.id) });
 });
 
 app.post('/api/rooms/:id/absent', authMiddleware, (req, res) => {

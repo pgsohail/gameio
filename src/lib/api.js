@@ -52,6 +52,9 @@ export const roomsApi = {
   markAbsent: id => api(`/api/rooms/${id}/absent`, { method: 'POST' }),
   rejoin: id => api(`/api/rooms/${id}/rejoin`, { method: 'POST' }),
   rematch: id => api(`/api/rooms/${id}/rematch`, { method: 'POST' }),
+  kick: (id, slotIndex) => api(`/api/rooms/${id}/kick`, {
+    method: 'POST', body: JSON.stringify({ slotIndex }),
+  }),
   quickJoin: body => api('/api/rooms/quick-join', { method: 'POST', body: JSON.stringify(body) }),
   update: (id, body) => api(`/api/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 };
