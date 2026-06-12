@@ -2,6 +2,7 @@ import { countriesForBoard, AIRPORTS, UTILITIES, GROUP_PALETTE } from '../data/c
 import { POWER_DRAW_CHANCE, pickRandomPowerCard, powerCardById } from '../data/powerCards.js';
 import { flagModalHTML, flagSrc } from '../lib/flags.js';
 import { fmt, rand, shuffle, $ } from '../lib/format.js';
+import { rollDie, rollDicePair } from '../lib/random.js';
 import { buildTileParts, tileIcon as tileIconHTML } from '../ui/tiles.js';
 import { buildPropSheet, propBodyHTML } from '../ui/propModal.js';
 import { renderCountryBrackets, scheduleCountryBrackets } from '../ui/countryBrackets.js';
@@ -529,7 +530,7 @@ function initBoard(per,{preview=false}={}){
   board.appendChild(hub);
   if(!preview)mountHubDock();
   Dice3D.init($('diceLayer'));
-  Dice3D.setValues(1+rand(6),1+rand(6),false);
+  Dice3D.setValues(rollDie(6), rollDie(6), false);
 
   TILES.forEach((t,i)=>{
     const p=gridPos(i);
@@ -572,15 +573,8 @@ document.addEventListener('click',e=>{
   }
 });
 
-function rollDiceValues(){
-  S.dice=[1+rand(6),1+rand(6)];
-  return S.dice[0]+S.dice[1];
-}
-function msUntilDiceDone(startAt){
-  return Math.max(0,(startAt||Date.now())+DICE_ROLL_MS-Date.now());
-}
 function rollDiceAndBroadcast(p){
-  const d1=1+rand(6), d2=1+rand(6);
+  const [d1, d2] = rollDicePair(6);
   S.dice=[d1,d2];
   const startAt=isMpGame()?Date.now()+DICE_SYNC_LEAD_MS:Date.now();
   remoteRollUntil=startAt+DICE_ROLL_MS+320;
@@ -592,11 +586,9 @@ function rollDiceAndBroadcast(p){
   Dice3D.roll(d1,d2);
   return {total:d1+d2,startAt};
 }
-function rollDice(){return rollDiceAndBroadcast(S.cur).total;}
-
-/* ============================================================
-   RENDER
-============================================================ */
+function msUntilDiceDone(startAt){
+  return Math.max(0,(startAt||Date.now())+DICE_ROLL_MS-Date.now());
+}
 function renderAll(){
   renderPlayers();
   renderActionsCard();
