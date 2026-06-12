@@ -177,6 +177,40 @@
                 <button class="max-chip glass-seg__btn" data-max="6" type="button">6</button>
               </div>
             </div>
+            <div class="setup-adv-core">
+              <span class="setup-adv-core__title">Game economy</span>
+              <div class="adv-block">
+                <span class="adv-block__label">Difficulty</span>
+                <div class="glass-seg glass-seg--dark glass-seg--adv">
+                  <button class="diff-chip glass-seg__btn" data-val="relaxed" type="button">Relaxed</button>
+                  <button class="diff-chip glass-seg__btn on" data-val="classic" type="button">Classic</button>
+                  <button class="diff-chip glass-seg__btn" data-val="shark" type="button">Shark</button>
+                </div>
+                <p class="adv-block__hint" id="diffHint">Balanced bots and classic pacing.</p>
+              </div>
+              <div class="adv-block">
+                <span class="adv-block__label">Starting cash</span>
+                <div class="glass-seg glass-seg--dark glass-seg--grid glass-seg--adv">
+                  <button class="cash-chip glass-seg__btn" data-val="1500" type="button">$1.5k</button>
+                  <button class="cash-chip glass-seg__btn on" data-val="2000" type="button">$2k</button>
+                  <button class="cash-chip glass-seg__btn" data-val="3000" type="button">$3k</button>
+                  <button class="cash-chip glass-seg__btn" data-val="5000" type="button">$5k</button>
+                  <button class="cash-chip glass-seg__btn" data-val="7500" type="button">$7.5k</button>
+                  <button class="cash-chip glass-seg__btn" data-val="10000" type="button">$10k</button>
+                </div>
+                <p class="adv-block__hint" id="cashHint">$2,000 each. Standard opening bankroll.</p>
+              </div>
+              <div class="adv-block">
+                <span class="adv-block__label">GO salary</span>
+                <div class="glass-seg glass-seg--dark glass-seg--adv">
+                  <button class="salary-chip glass-seg__btn" data-val="200" type="button">$200</button>
+                  <button class="salary-chip glass-seg__btn on" data-val="300" type="button">$300</button>
+                  <button class="salary-chip glass-seg__btn" data-val="400" type="button">$400</button>
+                  <button class="salary-chip glass-seg__btn" data-val="500" type="button">$500</button>
+                </div>
+                <p class="adv-block__hint" id="salaryHint">$300 each time you pass GO.</p>
+              </div>
+            </div>
             <div class="setup-private">
               <label class="glass-toggle glass-toggle--row">
                 <span class="glass-toggle__lbl"><b>Private game</b><small>Invite friends with a link</small></span>
@@ -193,37 +227,6 @@
         </div>
         <aside class="create-adv-card">
           <h3 class="create-adv-card__title">Advanced rules</h3>
-          <div class="adv-block">
-            <span class="adv-block__label">Difficulty</span>
-            <div class="glass-seg glass-seg--dark glass-seg--adv">
-              <button class="diff-chip glass-seg__btn" data-val="relaxed" type="button">Relaxed</button>
-              <button class="diff-chip glass-seg__btn on" data-val="classic" type="button">Classic</button>
-              <button class="diff-chip glass-seg__btn" data-val="shark" type="button">Shark</button>
-            </div>
-            <p class="adv-block__hint" id="diffHint">Balanced bots and classic pacing.</p>
-          </div>
-          <div class="adv-block">
-            <span class="adv-block__label">Starting cash</span>
-            <div class="glass-seg glass-seg--dark glass-seg--grid glass-seg--adv">
-              <button class="cash-chip glass-seg__btn" data-val="1500" type="button">$1.5k</button>
-              <button class="cash-chip glass-seg__btn on" data-val="2000" type="button">$2k</button>
-              <button class="cash-chip glass-seg__btn" data-val="3000" type="button">$3k</button>
-              <button class="cash-chip glass-seg__btn" data-val="5000" type="button">$5k</button>
-              <button class="cash-chip glass-seg__btn" data-val="7500" type="button">$7.5k</button>
-              <button class="cash-chip glass-seg__btn" data-val="10000" type="button">$10k</button>
-            </div>
-            <p class="adv-block__hint" id="cashHint">$2,000 each. Standard opening bankroll.</p>
-          </div>
-          <div class="adv-block">
-            <span class="adv-block__label">GO salary</span>
-            <div class="glass-seg glass-seg--dark glass-seg--adv">
-              <button class="salary-chip glass-seg__btn" data-val="200" type="button">$200</button>
-              <button class="salary-chip glass-seg__btn on" data-val="300" type="button">$300</button>
-              <button class="salary-chip glass-seg__btn" data-val="400" type="button">$400</button>
-              <button class="salary-chip glass-seg__btn" data-val="500" type="button">$500</button>
-            </div>
-            <p class="adv-block__hint" id="salaryHint">$300 each time you pass GO.</p>
-          </div>
           <div class="adv-toggles adv-toggles--create">
             <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>×2 sets</b><small>Double rent on a complete color group</small></span><input type="checkbox" id="ruleDouble" checked><i class="glass-toggle__sw"></i></label>
             <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Vacation pot</b><small>Taxes and fees go to a shared pot</small></span><input type="checkbox" id="ruleVacation" checked><i class="glass-toggle__sw"></i></label>
@@ -232,7 +235,7 @@
             <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Mortgage</b><small>Borrow cash against owned tiles</small></span><input type="checkbox" id="ruleMortgage" checked><i class="glass-toggle__sw"></i></label>
             <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Doubles</b><small>Extra roll on doubles, 3 sends you to jail</small></span><input type="checkbox" id="ruleDoubles" checked><i class="glass-toggle__sw"></i></label>
             <label class="glass-toggle glass-toggle--hint glass-toggle--gold"><span class="glass-toggle__lbl"><b>Power cards</b><small>Rare one-shot bonus cards</small></span><input type="checkbox" id="rulePowerCards"><i class="glass-toggle__sw"></i></label>
-            <label class="glass-toggle glass-toggle--hint glass-toggle--mint"><span class="glass-toggle__lbl"><b>Bots</b><small>AI fills empty seats at launch</small></span><input type="checkbox" id="ruleAllowBots" checked><i class="glass-toggle__sw"></i></label>
+            <label class="glass-toggle glass-toggle--hint glass-toggle--mint"><span class="glass-toggle__lbl"><b>Bots</b><small>AI opponents in solo quick play</small></span><input type="checkbox" id="ruleAllowBots" checked><i class="glass-toggle__sw"></i></label>
             <label class="glass-toggle glass-toggle--hint"><span class="glass-toggle__lbl"><b>Random player order</b><small>Shuffle who goes first when the game launches</small></span><input type="checkbox" id="ruleRandomOrder"><i class="glass-toggle__sw"></i></label>
           </div>
           <div class="power-preview hidden" id="powerPreview">
@@ -408,7 +411,8 @@
           <label class="glass-toggle glass-toggle--mini"><span>Random order</span><input type="checkbox" class="board-rule" data-rule="randomOrder" title="Shuffle who goes first at launch"><i class="glass-toggle__sw"></i></label>
         </div>
       </section>
-      <button type="button" class="home-play room-launch hidden" id="boardLaunchBtn">
+      <p class="room-launch-hint hidden" id="boardLaunchHint">Waiting for all players to join…</p>
+      <button type="button" class="home-play room-launch hidden" id="boardLaunchBtn" disabled>
         <span class="home-play__label">Launch game</span>
         <span class="home-play__chev">››</span>
       </button>

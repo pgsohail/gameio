@@ -2548,16 +2548,26 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 }
 .create-main{display:flex;flex-direction:column;gap:0}
 .create-adv-card{
-  padding:14px 13px;border-radius:16px;position:sticky;top:20px;
-  max-height:calc(100vh - 40px);overflow-x:hidden;overflow-y:auto;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.2) transparent;
+  padding:14px 13px;border-radius:16px;
   background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
   backdrop-filter:blur(24px) saturate(1.2);
   box-shadow:0 12px 40px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.1);
 }
-.create-adv-card::-webkit-scrollbar{width:5px}
-.create-adv-card::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
+.setup-adv-core{
+  padding-top:4px;border-top:1px solid rgba(255,255,255,.06);
+  display:flex;flex-direction:column;gap:10px;
+}
+.setup-adv-core__title{
+  font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(255,255,255,.45);
+}
+.room-launch-hint{
+  font-size:11px;color:rgba(255,255,255,.45);text-align:center;
+  margin:8px 0 0;line-height:1.35;
+}
+.room-launch[disabled],.room-launch:disabled{
+  opacity:.45;cursor:not-allowed;pointer-events:none;
+}
 .create-adv-card__title{
   font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
   color:rgba(255,255,255,.55);margin-bottom:12px;padding-bottom:10px;

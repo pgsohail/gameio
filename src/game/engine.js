@@ -132,48 +132,56 @@ const UTL_MULT=[0,4,10,20,30];
    LOBBY → GAME
 ============================================================ */
 function startGameFromLobby({ rules, players, adminId = 0 }) {
-  const per = rules.per;
-  S.rules = {
-    ...rules,
-    title: 'Buildup.io',
-    diff: DIFF[rules.diff] || DIFF.classic,
-  };
-  S.players = players.map((p, i) => ({
-    id: i,
-    name: p.name,
-    bot: p.bot,
-    emoji: p.emoji,
-    color: p.color || PLAYER_COLORS[i],
-    isAdmin: p.isAdmin ?? i === adminId,
-    cash: S.rules.cash,
-    pos: 0,
-    jail: false,
-    jailTurns: 0,
-    goojf: 0,
-    dead: false,
-    debt: null,
-    powerCards: [],
-    rentSurge: false,
-    taxShield: false,
-  }));
-  S.fortune = shuffle(FORTUNE);
-  S.treasury = shuffle(TREASURY);
-  S.recentTrades = [];
-  S.openTrades = [];
-  tradeSeq = 1;
-  initBoard(per);
-  $('roomLobby')?.classList.add('hidden');
-  document.body.classList.remove('room-lobby-mode');
-  $('lobby')?.remove();
-  setGameBrandVisible(true);
-  $('hud')?.classList.remove('hidden');
-  renderAll();
-  log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
-  startTurn();
+  try {
+    const per = rules.per;
+    S.rules = {
+      ...rules,
+      title: 'Buildup.io',
+      diff: DIFF[rules.diff] || DIFF.classic,
+    };
+    S.players = players.map((p, i) => ({
+      id: i,
+      name: p.name,
+      bot: p.bot,
+      emoji: p.emoji,
+      color: p.color || PLAYER_COLORS[i],
+      isAdmin: p.isAdmin ?? i === adminId,
+      cash: S.rules.cash,
+      pos: 0,
+      jail: false,
+      jailTurns: 0,
+      goojf: 0,
+      dead: false,
+      debt: null,
+      powerCards: [],
+      rentSurge: false,
+      taxShield: false,
+    }));
+    S.fortune = shuffle(FORTUNE);
+    S.treasury = shuffle(TREASURY);
+    S.recentTrades = [];
+    S.openTrades = [];
+    tradeSeq = 1;
+    S.over = false;
+    S.turn = 0;
+    S.phase = 'idle';
+    initBoard(per);
+    $('roomLobby')?.classList.add('hidden');
+    document.body.classList.remove('room-lobby-mode');
+    $('lobby')?.classList.add('hidden');
+    setGameBrandVisible(true);
+    $('hud')?.classList.remove('hidden');
+    renderAll();
+    log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
+    startTurn();
+  } catch (e) {
+    console.error(e);
+    throw e;
+  }
 }
 
 initLobby(startGameFromLobby, boardStats, per => {
-  initBoard(per);
+  initBoard(per, { preview: true });
 });
 
 /* ============================================================
@@ -214,20 +222,15 @@ function bindDockWires(){
   $('jailCardBtn').onclick=()=>useJailCard(S.cur);
 }
 
-function ensureGameDock(){
-  let dock=$('dock');
-  if(!dock){
-    dock=document.createElement('div');
-    dock.id='dock';
-    dock.className='hub-dock';
-    dock.innerHTML=DOCK_HTML;
-    $('hud')?.appendChild(dock);
-    bindDockWires();
-  }
-  return dock;
+function mountHubDock(){
+  const slot=$('hubDockSlot');
+  if(!slot)return;
+  slot.innerHTML=DOCK_HTML;
+  bindDockWires();
+  $('dock')?.classList.add('hidden');
 }
 
-function initBoard(per){
+function initBoard(per,{preview=false}={}){
   TILES=genBoard(per);
   N=TILES.length;PER=per;GRID=per+1;
   JAIL_IDX=TILES.findIndex(t=>t.type==='jail');
@@ -243,8 +246,6 @@ function initBoard(per){
   document.documentElement.style.setProperty('--edge',EDGE+'px');
   const board=$('board');
   if(!board)return;
-  const dockEl=ensureGameDock();
-  if(board.contains(dockEl))$('hud')?.appendChild(dockEl);
   board.innerHTML='';
   board.style.gridTemplateColumns=`${CORNER}px repeat(${per-1},${EDGE}px) ${CORNER}px`;
   board.style.gridTemplateRows=board.style.gridTemplateColumns;
@@ -267,9 +268,7 @@ function initBoard(per){
       </div>
     </div>`;
   board.appendChild(hub);
-  const dock=ensureGameDock();
-  dock.classList.add('hub-dock');
-  $('hubDockSlot')?.appendChild(dock);
+  if(!preview)mountHubDock();
   Dice3D.init($('diceLayer'));
   Dice3D.setValues(1+rand(6),1+rand(6),false);
 
@@ -368,6 +367,7 @@ function renderPlayers(){
 }
 function renderTiles(){
   TILES.forEach(t=>{
+    if(!t.el)return;
     t.el.classList.toggle('mortgaged',!!t.mortgaged);
     t.el.classList.remove('landed');
     const owned=t.owner!=null&&!S.players[t.owner].dead;
@@ -391,6 +391,7 @@ function renderTiles(){
   S.players.forEach(p=>{if(!p.dead){if(!atPos[p.pos])atPos[p.pos]=[];atPos[p.pos].push(p);}});
   Object.entries(atPos).forEach(([pos,group])=>{
     const tile=TILES[+pos];
+    if(!tile?.el)return;
     tile.el.style.setProperty('--land',group.length===1?group[0].color:'#F2C66B');
     tile.el.classList.add('landed');
     group.forEach((p,i)=>{
@@ -407,8 +408,8 @@ function renderTiles(){
   });
 }
 function renderDock(){
-  ensureGameDock();
   const p=S.cur,ph=S.phase;
+  if(!p)return;
   const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle('hidden',!on);};
   const jailing=ph==='jail';
   const humanTurn=!p.bot&&!S.over;
@@ -500,7 +501,7 @@ function renderTradeCard(){
   renderOpenTrades();
   renderTradeRecent();
 }
-function msg(t){$('hubMsg').textContent=t;}
+function msg(t){const el=$('hubMsg');if(el)el.textContent=t;}
 function formatLogHtml(html){
   return html.replace(/\$([\d,]+)/g,'<span class="money">$$$1</span>');
 }
@@ -520,11 +521,13 @@ function renderHubActivity(){
   }).join('');
 }
 function log(html,p){
+  const logEl=$('log');
+  if(!logEl)return;
   const d=document.createElement('div');d.className='logline';
   if(p)d.style.setProperty('--lc',p.color);
   d.innerHTML=formatLogHtml(html);
-  $('log').prepend(d);
-  while($('log').children.length>90)$('log').lastChild.remove();
+  logEl.prepend(d);
+  while(logEl.children.length>90)logEl.lastChild.remove();
   renderHubActivity();
 }
 function tileIcon(t){return tileIconHTML(t);}
@@ -659,9 +662,11 @@ function wirePropModal(t,i,p){
   };
 }
 function openPropDetail(i){
-  $('logDrawer').classList.remove('closed');
+  $('logDrawer')?.classList.remove('closed');
   const t=TILES[i],human=localHuman();
-  const sameOpen=propOpenIdx===i&&!$('propModal').classList.contains('hidden');
+  const modal=$('propModal');
+  if(!modal||!t?.el)return;
+  const sameOpen=propOpenIdx===i&&!modal.classList.contains('hidden');
   const actions=`<div class="prop-actions">${propActionButtons(t,human).join('')}</div>`;
   $('propCardBody').innerHTML=buildPropHTML(t,i,actions);
   const sheet=$('propCardBody').querySelector('.prop-sheet');
@@ -669,7 +674,6 @@ function openPropDetail(i){
     sheet.setAttribute('data-build',String(t.houses||0));
     sheet.classList.toggle('prop-sheet--max',t.houses===5);
   }
-  const modal=$('propModal');
   const dock=usePropDock(t,human);
   modal.classList.toggle('prop-modal--dock',dock);
   modal.classList.remove('hidden');
@@ -815,7 +819,7 @@ function checkWin(){
   if(al.length===1&&!S.over){S.over=true;const w=al[0];
     $('winName').textContent=`${w.emoji} ${w.name} wins ${S.rules.title}!`;
     $('winSub').textContent=`Final empire: ${fmt(netWorth(w))} across ${ownedBy(w).length} properties.`;
-    $('winModal').classList.remove('hidden');}
+    $('winModal')?.classList.remove('hidden');}
   return S.over;
 }
 
@@ -1803,12 +1807,12 @@ function botBuild(p){
 ============================================================ */
 bindDockWires();
 $('tradeBtn')?.addEventListener('click',openTrade);
-$('tradeCancel').onclick=()=>$('tradeModal').classList.add('hidden');
-$('tradePropose').onclick=proposeTrade;
-$('tradeAccept').onclick=acceptIncomingTrade;
-$('tradeReject').onclick=rejectIncomingTrade;
-$('tradeNegotiate').onclick=()=>negotiateTrade(viewingTradeId);
-$('tradeReviewNegotiate').onclick=()=>negotiateTrade(viewingTradeId);
+$('tradeCancel')?.addEventListener('click',()=>$('tradeModal')?.classList.add('hidden'));
+$('tradePropose')?.addEventListener('click',proposeTrade);
+$('tradeAccept')?.addEventListener('click',acceptIncomingTrade);
+$('tradeReject')?.addEventListener('click',rejectIncomingTrade);
+$('tradeNegotiate')?.addEventListener('click',()=>negotiateTrade(viewingTradeId));
+$('tradeReviewNegotiate')?.addEventListener('click',()=>negotiateTrade(viewingTradeId));
 $('tradeReviewClose')?.addEventListener('click',closeTradeViewModal);
 $('tradeReviewModal').onclick=e=>{if(e.target.id==='tradeReviewModal')closeTradeViewModal();};
 $('propModal').onclick=e=>{if(e.target.id==='propModal')closePropDetail();};

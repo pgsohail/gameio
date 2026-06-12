@@ -334,30 +334,22 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
 
-  const allowBots = room.rules.allowBots !== false;
-  const players = [];
-  room.slots.forEach((slot, i) => {
-    if (slot) {
-      players.push({
-        userId: slot.userId,
-        name: slot.name,
-        emoji: slot.emoji,
-        color: slot.color,
-        bot: false,
-        isAdmin: i === (room.adminSlot ?? 0),
-      });
-    } else if (allowBots) {
-      const bi = players.length;
-      players.push({
-        userId: `bot_${bi}`,
-        name: `Bot ${bi}`,
-        emoji: ['🤖', '🎲', '🃏', '🎯'][bi % 4],
-        color: ['#FF1744', '#651FFF', '#00E676', '#FFEA00'][bi % 4],
-        bot: true,
-        isAdmin: false,
-      });
-    }
-  });
+  const emptySlots = room.slots.filter(s => !s).length;
+  if (emptySlots > 0) {
+    const joined = room.slots.filter(Boolean).length;
+    return res.status(400).json({
+      error: `Lobby not full yet (${joined}/${room.maxPlayers} players). Wait for everyone to join.`,
+    });
+  }
+
+  const players = room.slots.map((slot, i) => ({
+    userId: slot.userId,
+    name: slot.name,
+    emoji: slot.emoji,
+    color: slot.color,
+    bot: false,
+    isAdmin: i === (room.adminSlot ?? 0),
+  }));
 
   if (players.length < 2) return res.status(400).json({ error: 'Need at least 2 players' });
 

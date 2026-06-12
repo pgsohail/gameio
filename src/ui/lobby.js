@@ -362,6 +362,22 @@ function renderBoardLobby(room) {
   $('boardWaitingSlots')?.classList.toggle('hidden', needsJoin);
   $('boardLaunchBtn')?.classList.toggle('hidden', !isHost);
 
+  const humanCount = room.slots.filter(Boolean).length;
+  const canLaunch = full && humanCount >= 2;
+  const launchBtn = $('boardLaunchBtn');
+  const launchHint = $('boardLaunchHint');
+  if (isHost) {
+    launchBtn?.toggleAttribute('disabled', !canLaunch || gameStarted);
+    launchHint?.classList.toggle('hidden', canLaunch);
+    if (launchHint && !canLaunch) {
+      launchHint.textContent = humanCount < 2
+        ? 'Need at least 2 players in the lobby.'
+        : `Waiting for players (${humanCount}/${room.maxPlayers})…`;
+    }
+  } else {
+    launchHint?.classList.add('hidden');
+  }
+
   const title = $('boardWaitTitle');
   const sub = $('boardWaitSub');
   if (needsJoin) {
@@ -370,8 +386,10 @@ function renderBoardLobby(room) {
     $('boardJoinBtn')?.toggleAttribute('disabled', full);
     renderBoardJoinColors();
   } else if (isHost) {
-    if (title) title.textContent = 'Waiting for players';
-    if (sub) sub.textContent = 'Share the link · tweak settings · launch when ready';
+    if (title) title.textContent = full ? 'Everyone is here' : 'Waiting for players';
+    if (sub) sub.textContent = full
+      ? 'All seats filled — launch when ready'
+      : `Share the link · ${humanCount}/${room.maxPlayers} joined`;
   } else {
     if (title) title.textContent = 'Waiting for host';
     if (sub) sub.textContent = 'The admin will launch the game';
@@ -440,12 +458,19 @@ async function confirmBoardJoin() {
 async function launchWaitingRoom() {
   if (!currentRoomId || gameStarted) return;
   const btn = $('boardLaunchBtn');
+  if (btn?.disabled) return;
   btn?.setAttribute('disabled', 'true');
   try {
+    const { room } = await roomsApi.get(currentRoomId);
+    const humanCount = room.slots.filter(Boolean).length;
+    if (!room.slots.every(Boolean)) {
+      throw new Error(`Lobby not full yet (${humanCount}/${room.maxPlayers} players).`);
+    }
+    if (humanCount < 2) throw new Error('Need at least 2 players before launching.');
     const payload = await roomsApi.launch(currentRoomId);
     startFromPayload(payload);
   } catch (e) {
-    btn?.removeAttribute('disabled');
+    btn?.toggleAttribute('disabled', false);
     alert(e.message || 'Could not launch');
   }
 }
