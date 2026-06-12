@@ -8,7 +8,17 @@ import { OAuth2Client } from 'google-auth-library';
 import { randomBytes } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { pickHumanoidName } from './humanoidNames.js';
+import {
+  HUMANOID_CAP,
+  scheduleHumanoidJoins,
+  processHumanoidQueue,
+  maintainBotHostedRoom,
+  onRealHumanJoined,
+  onHumanoidKicked,
+  clearBotHostedRoomId,
+  countHumanoids,
+  humanoidLobbyDeps,
+} from './humanoidLobby.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -123,6 +133,7 @@ function pruneRooms() {
       continue;
     }
     if (occupied === 0 || now - room.updatedAt > ROOM_TTL_MS) {
+      clearBotHostedRoomId(id);
       rooms.delete(id);
       roomSubs.delete(id);
     }
@@ -137,7 +148,7 @@ function publicRoomList() {
   pruneRooms();
   return [...rooms.values()]
     .filter(r => !r.private && r.status === 'lobby')
-    .filter(r => humanCount(r) > 0)
+    .filter(r => humanCount(r) > 0 || r.humanoidHosted)
     .filter(r => r.slots.some(s => !s))
     .sort((a, b) => humanCount(b) - humanCount(a) || b.updatedAt - a.updatedAt)
     .map(roomToClient);
@@ -195,6 +206,7 @@ function seatUserInRoom(room, user, { emoji, color } = {}) {
     isHost: false,
   };
   room.updatedAt = Date.now();
+  onRealHumanJoined(room, hoidCtx());
   return { ok: true };
 }
 
@@ -213,6 +225,7 @@ function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     humanoidBudget: HUMANOID_CAP,
+    humanoidQueue: [],
   };
   room.slots[0] = {
     userId: user.id,
@@ -322,44 +335,23 @@ function processAbsentTimeouts() {
 
 const BOT_EMOJIS = ['🤖', '🦾', '👾', '🎮', '⚡', '🔮'];
 const BOT_COLORS = ['#78909C', '#607D8B', '#546E7A', '#90A4AE', '#B0BEC5', '#455A64'];
-const HUMANOID_CAP = 2;
-const HUMANOID_EMOJIS = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀', '🦁', '🏎️', '🛸', '🌍', '🐪', '🎒'];
 
-function countHumanoids(room) {
-  return room.slots.filter(s => s?.humanoid).length;
-}
-
-function syncHumanoidFill(room) {
-  if (room.status !== 'lobby' || room.rules?.allowBots) return;
-  if (humanCount(room) < 1) return;
-  const budget = room.humanoidBudget ?? HUMANOID_CAP;
-  const have = countHumanoids(room);
-  if (have >= budget) return;
-  const usedNames = new Set(room.slots.filter(Boolean).map(s => s.name));
-  const emptyIdx = room.slots.map((s, i) => (!s ? i : -1)).filter(i => i >= 0);
-  const toAdd = Math.min(budget - have, emptyIdx.length, HUMANOID_CAP - have);
-  for (let n = 0; n < toAdd; n++) {
-    const idx = emptyIdx[n];
-    if (room.slots[idx]) continue;
-    room.slots[idx] = {
-      userId: `humanoid:${room.id}:${idx}:${randomBytes(4).toString('hex')}`,
-      name: pickHumanoidName(usedNames),
-      emoji: HUMANOID_EMOJIS[(idx + n) % HUMANOID_EMOJIS.length],
-      color: pickJoinColor(room, JOIN_COLORS[(idx + n + 1) % JOIN_COLORS.length]),
-      bot: true,
-      humanoid: true,
-      botBrain: 'mastermind',
-      isHost: false,
-    };
-    usedNames.add(room.slots[idx].name);
-  }
-  if (toAdd > 0) room.updatedAt = Date.now();
+function hoidCtx() {
+  return humanoidLobbyDeps({
+    pickJoinColor,
+    joinColors: JOIN_COLORS,
+    broadcastRoom,
+    transferHost,
+    secureRoomId,
+    rooms,
+    maxRooms: MAX_ROOMS,
+  });
 }
 
 function syncLobbyFillers(room) {
   if (room.status !== 'lobby') return;
   if (room.rules?.allowBots) syncRoomBots(room);
-  else syncHumanoidFill(room);
+  else scheduleHumanoidJoins(room, humanCount(room), hoidCtx());
 }
 
 function syncRoomBots(room) {
@@ -393,9 +385,7 @@ function kickLobbySlot(room, hostId, slotIndex) {
     return { ok: false, error: 'Cannot kick yourself' };
   }
   room.slots[idx] = null;
-  if (slot.humanoid) {
-    room.humanoidBudget = Math.max(0, (room.humanoidBudget ?? HUMANOID_CAP) - 1);
-  }
+  onHumanoidKicked(room, slot);
   if (!slot.bot) {
     room.kicked = room.kicked || {};
     room.kicked[slot.userId] = { reason: 'admin', at: Date.now() };
@@ -562,6 +552,7 @@ app.get('/api/store', (_req, res) => {
 });
 
 app.get('/api/rooms', (_req, res) => {
+  maintainBotHostedRoom(rooms, humanCount, hoidCtx());
   res.json({ rooms: publicRoomList() });
 });
 
@@ -601,6 +592,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     humanoidBudget: HUMANOID_CAP,
+    humanoidQueue: [],
   };
   room.slots[0] = {
     userId: req.user.id,
@@ -755,6 +747,8 @@ app.post('/api/rooms/:id/rematch', authMiddleware, (req, res) => {
     }
     room.slots = slots;
     room.humanoidBudget = HUMANOID_CAP;
+    room.humanoidQueue = [];
+    room.waitingSince = Date.now();
     syncLobbyFillers(room);
   }
   room.status = 'lobby';
@@ -959,6 +953,10 @@ wss.on('connection', (ws, req) => {
 
 setInterval(pruneRooms, 60_000);
 setInterval(processAbsentTimeouts, 5000);
+setInterval(() => {
+  processHumanoidQueue(rooms, humanCount, hoidCtx());
+  maintainBotHostedRoom(rooms, humanCount, hoidCtx());
+}, 4000);
 
 const wsPing = setInterval(() => {
   for (const ws of wss.clients) {
