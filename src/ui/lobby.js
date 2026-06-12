@@ -6,7 +6,7 @@ import {
 } from '../lib/auth.js';
 import { connectRoomSocket, getToken, roomLink, roomsApi, subscribeWhenOpen } from '../lib/api.js';
 import {
-  enableMultiplayer, detachMultiplayer, handleSocketMessage,
+  enableMultiplayer, detachMultiplayer, handleSocketMessage, handleDiceRollMessage,
 } from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 
@@ -268,6 +268,7 @@ function startLobbyPoll(roomId) {
 
 function onRoomSocketMessage(roomId, msg) {
   const u = getUser();
+  if (handleDiceRollMessage(msg, u?.id)) return;
   if (handleSocketMessage(msg, u?.id)) return;
   if (msg.type === 'room_update' && msg.room?.id === roomId) {
     renderBoardLobby(msg.room);

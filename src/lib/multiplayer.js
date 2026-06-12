@@ -8,6 +8,7 @@ let broadcastTimer = null;
 let lastRemoteSeq = 0;
 let exportStateFn = null;
 let importStateFn = null;
+let onDiceRollFn = null;
 
 export function registerStateSync(exporter) {
   exportStateFn = exporter;
@@ -15,6 +16,10 @@ export function registerStateSync(exporter) {
 
 export function registerStateImporter(importer) {
   importStateFn = importer;
+}
+
+export function registerDiceRollHandler(handler) {
+  onDiceRollFn = handler;
 }
 
 export function isMpGame() {
@@ -47,6 +52,27 @@ export function detachMultiplayer() {
   clearTimeout(broadcastTimer);
   broadcastTimer = null;
   lastRemoteSeq = 0;
+}
+
+export function broadcastDiceRoll(d1, d2, rollerName, rollerUserId) {
+  if (!mpGame || !roomId || !socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({
+    type: 'dice_roll',
+    roomId,
+    d1,
+    d2,
+    rollerName,
+    rollerUserId,
+    seq: Date.now(),
+  }));
+}
+
+export function handleDiceRollMessage(msg, myUserId) {
+  if (msg.type !== 'dice_roll') return false;
+  if (msg.from && msg.from === myUserId) return true;
+  if (msg.rollerUserId && msg.rollerUserId === myUserId) return true;
+  onDiceRollFn?.(msg);
+  return true;
 }
 
 export function handleSocketMessage(msg, myUserId) {

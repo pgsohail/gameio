@@ -17,7 +17,8 @@ import { BRIGHT_COLORS } from '../lib/colors.js';
 import { getUser } from '../lib/auth.js';
 import {
   isMpGame, isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
-  broadcastStateNow, registerStateSync, registerStateImporter, rebuildDeck,
+  broadcastStateNow, broadcastDiceRoll, registerStateSync, registerStateImporter,
+  registerDiceRollHandler, rebuildDeck,
 } from '../lib/multiplayer.js';
 
 /* ============================================================
@@ -174,6 +175,8 @@ function exportGameState() {
   };
 }
 
+let remoteRollUntil = 0;
+
 function importGameState(state) {
   if (!state || !state.players?.length) return;
   S.turn = state.turn ?? 0;
@@ -210,10 +213,36 @@ function importGameState(state) {
   }
   if (state.fortuneKeys) S.fortune = rebuildDeck(FORTUNE, state.fortuneKeys);
   if (state.treasuryKeys) S.treasury = rebuildDeck(TREASURY, state.treasuryKeys);
-  Dice3D.setValues(S.dice[0], S.dice[1], false);
+  if (Date.now() >= remoteRollUntil) {
+    Dice3D.setValues(S.dice[0], S.dice[1], false);
+  }
   renderAll();
   postSyncTurn();
 }
+
+function playDiceForAll(d1, d2, rollerName, isDouble) {
+  S.dice = [d1, d2];
+  Dice3D.roll(d1, d2);
+  const total = d1 + d2;
+  const p = S.players[S.turn];
+  const label = rollerName || p?.name || 'Player';
+  if (S.phase === 'jail' || p?.jail) {
+    msg(`${label} rolls for doubles…`);
+  } else {
+    log(`<b>${label}</b> rolls <b>${d1} + ${d2} = ${total}</b>${isDouble ? ' (doubles!)' : ''}.`, p || undefined);
+  }
+}
+
+function onRemoteDiceRoll(msg) {
+  const d1 = +msg.d1;
+  const d2 = +msg.d2;
+  if (!d1 || !d2) return;
+  remoteRollUntil = Date.now() + DICE_ROLL_MS + 120;
+  const isDouble = d1 === d2 && S.rules.doubles;
+  playDiceForAll(d1, d2, msg.rollerName, isDouble);
+}
+
+registerDiceRollHandler(onRemoteDiceRoll);
 
 function postSyncTurn() {
   if (!isMpGame() || isApplyingRemote()) return;
@@ -426,7 +455,21 @@ document.addEventListener('click',e=>{
   }
 });
 
-function rollDice(){S.dice=[1+rand(6),1+rand(6)];Dice3D.roll(S.dice[0],S.dice[1]);return S.dice[0]+S.dice[1];}
+function rollDiceValues(){
+  S.dice=[1+rand(6),1+rand(6)];
+  return S.dice[0]+S.dice[1];
+}
+function rollDiceAndBroadcast(p){
+  const d1=1+rand(6), d2=1+rand(6);
+  S.dice=[d1,d2];
+  if(isMpGame()){
+    broadcastDiceRoll(d1,d2,p.name,p.userId);
+    broadcastStateNow();
+  }
+  Dice3D.roll(d1,d2);
+  return d1+d2;
+}
+function rollDice(){return rollDiceAndBroadcast(S.cur);}
 
 /* ============================================================
    RENDER
@@ -991,12 +1034,13 @@ function humanRoll(){
 function doRoll(p){
   if(isMpGame()&&!isMyTurn())return;
   S.phase='moving';renderDock();
-  const total=rollDice();
+  const total=rollDiceAndBroadcast(p);
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
+  log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble?' (doubles!)':''}.`,p);
   setTimeout(()=>{
     if(isDouble)S.doubles++;
     if(S.doubles>=3){log(`<b>${p.name}</b> rolls three doubles in a row — straight to prison!`,p);sendToJail({cur:p});finishMovePhase(p,false);return;}
-    log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble?' (doubles!)':''}.`,p);
+    if(isMpGame())broadcastStateNow();
     animateMove(p,total,()=>resolveTile(p,{rolledDouble:isDouble}));
   },DICE_ROLL_MS);
 }
@@ -1134,8 +1178,9 @@ function useJailCard(p){
   if(p.bot)setTimeout(()=>doRoll(p),800);
 }
 function jailRoll(p){
+  if(isMpGame()&&!isMyTurn())return;
   S.phase='moving';renderDock();
-  const total=rollDice();
+  const total=rollDiceAndBroadcast(p);
   setTimeout(()=>{
     if(S.dice[0]===S.dice[1]){
       p.jail=false;p.jailTurns=0;

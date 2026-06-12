@@ -162,6 +162,24 @@ function broadcastRoom(roomId) {
   }
 }
 
+function broadcastDiceRoll(roomId, msg, fromWs) {
+  const subs = roomSubs.get(roomId);
+  if (!subs) return;
+  const payload = JSON.stringify({
+    type: 'dice_roll',
+    roomId,
+    d1: msg.d1,
+    d2: msg.d2,
+    rollerName: msg.rollerName,
+    rollerUserId: msg.rollerUserId,
+    from: fromWs.userId,
+    seq: msg.seq || Date.now(),
+  });
+  for (const ws of subs) {
+    if (ws.readyState === 1 && ws !== fromWs) ws.send(payload);
+  }
+}
+
 function broadcastGameState(roomId, state, fromWs, fromUserId) {
   const subs = roomSubs.get(roomId);
   if (!subs) return;
@@ -471,6 +489,14 @@ wss.on('connection', (ws, req) => {
             yourUserId: ws.userId,
           }));
         }
+      }
+    }
+    if (msg.type === 'dice_roll' && msg.roomId) {
+      const rid = String(msg.roomId).trim().toLowerCase();
+      const room = rooms.get(rid);
+      if (room?.status === 'playing') {
+        room.updatedAt = Date.now();
+        broadcastDiceRoll(rid, msg, ws);
       }
     }
     if (msg.type === 'game_state' && msg.roomId && msg.state) {
