@@ -299,12 +299,12 @@ function startFromPayload(payload) {
   if (gameStarted) return;
   const u = getUser();
   if (!u || !onStartGame) return;
-  gameStarted = true;
-  gameMultiplayer = isMp;
   stopLobbyPoll();
   const adminId = payload.adminId ?? 0;
   const humanCount = payload.players.filter(p => !p.bot).length;
   const isMp = humanCount > 1;
+  gameStarted = true;
+  gameMultiplayer = isMp;
   const players = payload.players.map((p, i) => ({
     userId: p.userId,
     name: p.userId === u.id ? u.name : p.name,
@@ -317,6 +317,9 @@ function startFromPayload(payload) {
   }));
   const rid = String(payload.roomId || currentRoomId || '').toLowerCase();
   if (rid) currentRoomId = rid;
+  $('hubTop')?.classList.add('hidden');
+  $('scene')?.classList.remove('hidden');
+  persistRoomInUrl(rid);
   try {
     onStartGame({ rules: payload.rules, players, adminId, multiplayer: isMp });
     if (isMp && rid) {

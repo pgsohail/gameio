@@ -416,6 +416,8 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     $('roomLobby')?.classList.add('hidden');
     document.body.classList.remove('room-lobby-mode');
     $('lobby')?.classList.add('hidden');
+    $('hubTop')?.classList.add('hidden');
+    $('scene')?.classList.remove('hidden');
     setGameBrandVisible(true);
     $('hud')?.classList.remove('hidden');
     S.turnStartedAt=Date.now();
@@ -482,7 +484,7 @@ function bindDockWires(){
 function mountHubDock(){
   const slot=$('hubDockSlot');
   if(!slot)return;
-  slot.innerHTML=DOCK_HTML;
+  slot.innerHTML=`<div class="hub-dock">${DOCK_HTML}</div>`;
   bindDockWires();
   $('dock')?.classList.add('hidden');
 }
@@ -778,7 +780,9 @@ function renderActionsCard(){
     }else status.classList.add('hidden');
   }
   $('bankruptBtn')?.classList.toggle('hidden',!alive);
-  $('leaveGameBtn')?.classList.toggle('hidden',!human);
+  const showLeave=!!human&&!S.over;
+  $('leaveGameBtn')?.classList.toggle('hidden',!showLeave);
+  $('hudLeaveMiniBtn')?.classList.toggle('hidden',!showLeave);
 }
 function ensureTurnTimer(){
   if(turnTimerInterval)return;
@@ -857,7 +861,7 @@ function renderDock(){
     if($('auctionBtn'))$('auctionBtn').disabled=false;
     focusPropTile(t);
   }
-  $('hubDockSlot')?.classList.toggle('hub-dock--buy',humanTurn&&ph==='buy');
+  $('hubDockSlot')?.querySelector('.hub-dock')?.classList.toggle('hub-dock--buy',humanTurn&&ph==='buy');
   if(ph!=='buy'&&propOpenIdx==null)clearPropTileFocus();
   const human=localHuman();
   if(human?.debt){
@@ -2495,6 +2499,7 @@ function botTurn(){
 ============================================================ */
 bindDockWires();
 $('leaveGameBtn')?.addEventListener('click', handleLeaveGameClick);
+$('hudLeaveMiniBtn')?.addEventListener('click', handleLeaveGameClick);
 $('tradeBtn')?.addEventListener('click',openTrade);
 $('tradeCancel')?.addEventListener('click',()=>$('tradeModal')?.classList.add('hidden'));
 $('tradePropose')?.addEventListener('click',proposeTrade);

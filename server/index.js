@@ -342,7 +342,7 @@ function processAbsentTimeouts() {
 }
 
 const BOT_EMOJIS = ['🤖', '🦾', '👾', '🎮', '⚡', '🔮'];
-const BOT_COLORS = ['#78909C', '#607D8B', '#546E7A', '#90A4AE', '#B0BEC5', '#455A64'];
+const BOT_COLORS = ['#FF1744', '#F50057', '#651FFF', '#3D5AFE', '#00E5FF', '#00E676', '#FFEA00', '#FF9100', '#76FF03', '#D500F9'];
 
 function hoidCtx() {
   return humanoidLobbyDeps({
