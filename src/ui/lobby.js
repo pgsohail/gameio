@@ -52,9 +52,9 @@ let lobbyWasSeated = false;
 let botSoundQueue = 0;
 
 const DIFF_HINTS = {
-  relaxed: 'Gentler bots and slower bidding.',
-  classic: 'Balanced bots and classic pacing.',
-  shark: 'Aggressive bots that overbid and build fast.',
+  relaxed: 'Easygoing rivals and patient auction pacing.',
+  classic: 'Balanced competition and standard pacing.',
+  shark: 'Ruthless bidding and fast build-ups.',
 };
 const CASH_HINTS = {
   1500: '$1,500 each. Tight economy.',
@@ -515,8 +515,11 @@ function renderBoardLobby(room) {
   const total = room.slots.filter(Boolean).length;
   const allowBots = !!room.rules?.allowBots;
   const humanoids = room.slots.filter(s => s && s.humanoid).length;
-  const minHumans = allowBots ? 1 : 1;
-  const canLaunch = full && total >= 2 && humans >= minHumans && (allowBots || humans >= 2 || humanoids >= 1);
+  const minHumans = 1;
+  const privateFillers = allowBots && room.private;
+  const canLaunch = total >= 2 && humans >= minHumans
+    && (full || privateFillers || (!allowBots && humanoids >= 1))
+    && (allowBots || humans >= 2 || humanoids >= 1);
 
   playLobbySlotSounds(room);
 
@@ -555,15 +558,15 @@ function renderBoardLobby(room) {
     launchHint?.classList.toggle('hidden', canLaunch);
     if (launchHint && !canLaunch) {
       if (humans < minHumans) {
-        launchHint.textContent = allowBots
-          ? 'Need at least 1 player (bots can fill the rest).'
+        launchHint.textContent = privateFillers
+          ? 'Need at least 1 player — travelers fill seats by difficulty.'
           : humans < 2 && humanoids < 1
             ? 'Need another player — or wait for a traveler to join.'
             : `Waiting for players (${total}/${room.maxPlayers})…`;
-      } else if (!full) {
-        launchHint.textContent = allowBots
-          ? `Filling seats… ${total}/${room.maxPlayers}`
-          : `Waiting for players (${humans}/${room.maxPlayers})…`;
+      } else if (!full && !privateFillers) {
+        launchHint.textContent = `Waiting for players (${humans}/${room.maxPlayers})…`;
+      } else if (!full && privateFillers) {
+        launchHint.textContent = `Ready when you are — ${total} player${total === 1 ? '' : 's'} seated (${room.rules?.diff || 'classic'}).`;
       } else {
         launchHint.textContent = 'Need at least 2 players to start.';
       }

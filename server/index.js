@@ -18,6 +18,7 @@ import {
   onHumanoidKicked,
   clearBotHostedRoomId,
   countHumanoids,
+  createHumanoidSlot,
   humanoidLobbyDeps,
 } from './humanoidLobby.js';
 
@@ -356,28 +357,64 @@ function hoidCtx() {
   });
 }
 
+function privateMastermindTarget(room) {
+  if (!room.rules?.allowBots || !room.private) return 0;
+  const diff = room.rules.diff || 'classic';
+  const humans = humanCount(room);
+  const maxFillers = Math.max(0, room.slots.length - humans);
+  if (maxFillers <= 0) return 0;
+  if (diff === 'relaxed') return Math.min(1, maxFillers);
+  if (diff === 'shark') return maxFillers;
+  return Math.min(2, maxFillers);
+}
+
+function clearPrivateAutoSeats(room) {
+  if (!room.private) return;
+  for (let i = 0; i < room.slots.length; i++) {
+    if (room.slots[i]?.bot) room.slots[i] = null;
+  }
+  room.humanoidQueue = [];
+}
+
 function syncLobbyFillers(room) {
   if (room.status !== 'lobby') return;
-  if (room.rules?.allowBots) syncRoomBots(room);
-  else scheduleHumanoidJoins(room, humanCount(room), hoidCtx());
+  if (room.rules?.allowBots && room.private) {
+    syncRoomBots(room);
+    return;
+  }
+  clearPrivateAutoSeats(room);
+  if (!room.rules?.allowBots) {
+    scheduleHumanoidJoins(room, humanCount(room), hoidCtx());
+  }
 }
 
 function syncRoomBots(room) {
-  if (!room.rules?.allowBots) return;
-  let n = room.slots.filter(s => s?.bot).length + 1;
+  if (!room.rules?.allowBots || !room.private) return;
+  const target = privateMastermindTarget(room);
+  const deps = hoidCtx();
+  const usedNames = new Set(room.slots.filter(Boolean).map(s => s.name));
+  const humanoidIdx = [];
+
   for (let i = 0; i < room.slots.length; i++) {
+    const s = room.slots[i];
+    if (!s) continue;
+    if (s.bot && !s.humanoid) room.slots[i] = null;
+    else if (s.humanoid) humanoidIdx.push(i);
+  }
+
+  while (humanoidIdx.length > target) {
+    const idx = humanoidIdx.pop();
+    room.slots[idx] = null;
+  }
+
+  let have = humanoidIdx.length;
+  for (let i = 0; i < room.slots.length && have < target; i++) {
     if (!room.slots[i]) {
-      room.slots[i] = {
-        userId: `bot:${room.id}:${i}`,
-        name: `Bot ${n}`,
-        emoji: BOT_EMOJIS[i % BOT_EMOJIS.length],
-        color: BOT_COLORS[i % BOT_COLORS.length],
-        bot: true,
-        isHost: false,
-      };
-      n += 1;
+      room.slots[i] = createHumanoidSlot(room, i, usedNames, deps);
+      have += 1;
     }
   }
+  room.humanoidQueue = [];
 }
 
 function kickLobbySlot(room, hostId, slotIndex) {
@@ -811,10 +848,11 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
 
   syncLobbyFillers(room);
   const emptySlots = room.slots.filter(s => !s).length;
-  if (emptySlots > 0) {
-    const joined = room.slots.filter(Boolean).length;
+  const occupied = room.slots.filter(Boolean).length;
+  const privateFillers = room.private && room.rules?.allowBots;
+  if (emptySlots > 0 && !privateFillers) {
     return res.status(400).json({
-      error: `Lobby not full yet (${joined}/${room.maxPlayers} players). Wait for everyone to join.`,
+      error: `Lobby not full yet (${occupied}/${room.maxPlayers} players). Wait for everyone to join.`,
     });
   }
 

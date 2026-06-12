@@ -111,7 +111,7 @@ function humanoidTargetCount(room, humanCount) {
 }
 
 export function scheduleHumanoidJoins(room, humanCount, deps) {
-  if (room.status !== 'lobby' || room.rules?.allowBots || room.humanoidHosted) return false;
+  if (room.status !== 'lobby' || room.private || room.rules?.allowBots || room.humanoidHosted) return false;
   updateWaitingSince(room, humanCount);
   const need = humanoidTargetCount(room, humanCount);
   if (need <= 0) return false;
@@ -171,7 +171,7 @@ export function processHumanoidQueue(rooms, humanCountFn, deps) {
       deps.broadcastRoom(room.id);
       anyBroadcast = true;
     }
-    if (room.status === 'lobby' && !room.rules?.allowBots && !room.humanoidHosted) {
+    if (room.status === 'lobby' && !room.private && !room.rules?.allowBots && !room.humanoidHosted) {
       scheduleHumanoidJoins(room, humanCountFn(room), deps);
     }
   }
