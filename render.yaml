@@ -4,7 +4,7 @@
 # 3. Add VITE_GOOGLE_CLIENT_ID + GOOGLE_CLIENT_ID (same value) if using Google sign-in
 services:
   - type: web
-    name: buildup-io
+    name: gameio
     runtime: node
     plan: free
     buildCommand: npm ci && npm run build
