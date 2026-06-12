@@ -443,7 +443,7 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     S.voteKick={voters:[]};
     ensureTurnTimer();
     const vk=$('voteKickBtn'); if(vk)vk.onclick=castVoteKick;
-    const bb=$('bankruptBtn'); if(bb)bb.onclick=()=>voluntaryBankrupt(localHuman());
+    const bb=$('bankruptBtn'); if(bb)bb.onclick=openBankruptConfirm;
     renderAll();
     log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
     startTurn();
@@ -480,8 +480,7 @@ const DOCK_HTML=`<button class="btn" id="rollBtn">🎲 Roll Dice</button>
 <button class="btn" id="jailPayBtn">Pay $100 fine</button>
 <button class="btn ghost" id="jailCardBtn">Use jail card</button>
 <button class="btn hidden" id="settleDebtBtn" type="button">Pay debt</button>
-<button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>
-<button class="btn ghost hub-bankrupt-btn hidden" id="bankruptDockBtn" type="button">💸 Bankrupt</button>`;
+<button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>`;
 
 function bindDockWires(){
   if(!$('rollBtn'))return;
@@ -499,7 +498,6 @@ function bindDockWires(){
   $('settleDebtBtn').onclick=()=>{const p=localHuman();if(p)settleDebt(p);};
   $('jailPayBtn').onclick=()=>payJailFine(S.cur);
   $('jailCardBtn').onclick=()=>useJailCard(S.cur);
-  $('bankruptDockBtn').onclick=()=>voluntaryBankrupt(localHuman());
 }
 
 function mountHubDock(){
@@ -859,9 +857,6 @@ function renderActionsCard(){
   const showLeave=!!human&&!S.over;
   $('leaveGameBtn')?.classList.toggle('hidden',!showLeave);
   $('hudLeaveMiniBtn')?.classList.add('hidden');
-  const showBankruptDock=!!human&&!human.dead&&!S.over;
-  $('bankruptDockBtn')?.classList.toggle('hidden',!showBankruptDock);
-  $('bankruptDockBtn')?.classList.toggle('hub-bankrupt-btn--urgent',!!(showBankruptDock&&human.debt));
 }
 function ensureTurnTimer(){
   if(turnTimerInterval)return;
@@ -956,11 +951,7 @@ function renderDock(){
   show('powerCardsBtn',canPower);
   const pcb=$('powerCardsBtn');
   if(pcb&&canPower)pcb.textContent=`🃏 Power cards (${human.powerCards.length})`;
-  const lp=localHumanPlayer();
-  show('bankruptDockBtn',!!lp&&!lp.dead&&!S.over);
-  const bdb=$('bankruptDockBtn');
-  if(bdb)bdb.classList.toggle('hub-bankrupt-btn--urgent',!!(lp&&!lp.dead&&lp.debt));
-  if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn','bankruptDockBtn'].forEach(id=>{const el=$(id);if(el)el.classList.add('hidden');});
+  if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn'].forEach(id=>{const el=$(id);if(el)el.classList.add('hidden');});
 }
 function tradeTileSummary(idxs,cash){
   const parts=idxs.map(i=>TILES[i]?.name).filter(Boolean);
@@ -1360,9 +1351,29 @@ function settleDebt(p){
   msg('Debt cleared.');
   renderAll();
 }
+function openBankruptConfirm(){
+  const p=localHuman();
+  if(!p||p.dead||p.bot||S.over)return;
+  $('bankruptConfirmModal')?.classList.remove('hidden');
+}
+function closeBankruptConfirm(){
+  $('bankruptConfirmModal')?.classList.add('hidden');
+}
+function bindBankruptConfirm(){
+  const modal=$('bankruptConfirmModal');
+  if(!modal||modal.dataset.bound)return;
+  modal.dataset.bound='1';
+  $('bankruptConfirmNo')?.addEventListener('click',closeBankruptConfirm);
+  $('bankruptConfirmYes')?.addEventListener('click',()=>{
+    closeBankruptConfirm();
+    voluntaryBankrupt(localHuman());
+  });
+  modal.addEventListener('click',e=>{
+    if(e.target===modal)closeBankruptConfirm();
+  });
+}
 function voluntaryBankrupt(p){
   if(!p||p.dead||p.bot||S.over)return;
-  if(!confirm('Declare bankruptcy and leave the game? Your properties return to the bank.'))return;
   forfeitLocalHuman();
 }
 function forfeitLocalHuman(){
@@ -2883,3 +2894,4 @@ function runPropPreview(){
   if(openModal)requestAnimationFrame(()=>openPropDetail(focus.idx));
 }
 runPropPreview();
+bindBankruptConfirm();

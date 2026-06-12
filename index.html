@@ -514,7 +514,17 @@
     <button class="btn ghost" id="jailCardBtn">Use jail card</button>
     <button class="btn hidden" id="settleDebtBtn" type="button">Pay debt</button>
     <button class="btn ghost hidden" id="powerCardsBtn" type="button">🃏 Power cards</button>
-    <button class="btn ghost hub-bankrupt-btn hidden" id="bankruptDockBtn" type="button">💸 Bankrupt</button>
+  </div>
+</div>
+
+<div class="overlay overlay--alert hidden" id="bankruptConfirmModal" role="dialog" aria-modal="true" aria-labelledby="bankruptConfirmTitle">
+  <div class="ios-alert">
+    <h3 class="ios-alert__title" id="bankruptConfirmTitle">Declare bankruptcy?</h3>
+    <p class="ios-alert__message">Your properties return to the bank and you leave the game. This cannot be undone.</p>
+    <div class="ios-alert__actions">
+      <button type="button" class="ios-alert__btn" id="bankruptConfirmNo">No</button>
+      <button type="button" class="ios-alert__btn ios-alert__btn--destructive" id="bankruptConfirmYes">Yes</button>
+    </div>
   </div>
 </div>
 

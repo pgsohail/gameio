@@ -2541,17 +2541,35 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .card-sheet--treasury .card-sheet__eyebrow{color:rgba(252,211,77,.75)}
 .card-sheet--treasury .card-sheet__icon{filter:drop-shadow(0 0 12px rgba(252,211,77,.2))}
 .card-sheet--power .card-sheet__eyebrow{color:rgba(180,150,255,.75)}
-.hub-bankrupt-btn{
-  font-size:12px!important;padding:10px 16px!important;min-width:0!important;
-  color:rgba(255,200,200,.88)!important;
-  border-color:rgba(248,113,113,.28)!important;
-  background:rgba(60,20,24,.35)!important;
+.overlay--alert{
+  background:rgba(0,0,0,.48);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  z-index:110;cursor:pointer;
 }
-.hub-bankrupt-btn--urgent{
-  border-color:rgba(248,113,113,.55)!important;
-  box-shadow:0 0 16px rgba(248,113,113,.2)!important;
-  animation:bankruptPulse 2s ease-in-out infinite;
+.ios-alert{
+  pointer-events:auto;width:min(270px,78vw);border-radius:14px;overflow:hidden;text-align:center;
+  background:linear-gradient(180deg,rgba(58,58,62,.96),rgba(44,44,48,.98));
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 20px 60px rgba(0,0,0,.55);
+  animation:cardSheetIn .22s ease;
 }
+.ios-alert__title{
+  margin:0;padding:20px 16px 6px;font-size:17px;font-weight:700;line-height:1.25;color:#fff;
+}
+.ios-alert__message{
+  margin:0;padding:0 16px 18px;font-size:13px;line-height:1.45;font-weight:500;
+  color:rgba(255,255,255,.68);
+}
+.ios-alert__actions{
+  display:flex;border-top:1px solid rgba(255,255,255,.14);
+}
+.ios-alert__btn{
+  flex:1;padding:12px 8px;font-size:17px;font-weight:400;font-family:inherit;
+  background:transparent;border:none;cursor:pointer;color:#5ac8fa;
+  transition:background .12s;
+}
+.ios-alert__btn:hover{background:rgba(255,255,255,.06)}
+.ios-alert__btn:not(:last-child){border-right:1px solid rgba(255,255,255,.14)}
+.ios-alert__btn--destructive{color:#ff453a;font-weight:600}
 .action-bankrupt-btn--urgent{
   border-color:rgba(248,113,113,.55)!important;
   box-shadow:0 0 12px rgba(248,113,113,.18)!important;
