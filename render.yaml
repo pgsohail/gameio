@@ -7,7 +7,8 @@ services:
     name: gameio
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    # Install devDependencies too (vite) — NODE_ENV=production skips them otherwise → exit 127
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
