@@ -79,6 +79,17 @@
       <h1 class="lobby-hero__title">Buildup<span class="lobby-hero__accent">.io</span></h1>
       <p class="lobby-hero__tag">Own every street. Rule the board.</p>
 
+      <div id="roomInviteCard" class="room-invite-card hidden">
+        <p class="room-invite-card__eyebrow">Game invite</p>
+        <p class="room-invite-card__title">Room <b id="roomInviteId">-----</b></p>
+        <p class="room-invite-card__sub" id="roomInviteSub">A friend invited you to a private game.</p>
+        <button type="button" class="home-play room-invite-card__enter" id="roomInviteEnter">
+          <span class="home-play__label">Enter room</span>
+          <span class="home-play__chev" aria-hidden="true">››</span>
+        </button>
+        <button type="button" class="room-invite-card__dismiss" id="roomInviteDismiss">Stay on home</button>
+      </div>
+
       <div class="home-auth" id="authBar">
         <div id="authGuest" class="home-auth__guest">
           <button type="button" class="auth-gbtn auth-gbtn--compact" id="googleSignInBtn" aria-label="Continue with Google"></button>

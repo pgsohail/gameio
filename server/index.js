@@ -14,7 +14,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PROD = NODE_ENV === 'production';
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim() || null;
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_ROOMS = 400;
 const WS_PING_MS = 30_000;
@@ -245,7 +245,8 @@ app.get('/api/rooms/:id', authMiddleware, (req, res) => {
   pruneRooms();
   const room = rooms.get(req.params.id);
   if (!room) return res.status(404).json({ error: 'Room not found' });
-  if (room.private && !room.slots.some(s => s?.userId === req.user.id)) {
+  // Invite link is the secret for private lobbies — allow fetch while still in lobby
+  if (room.private && room.status !== 'lobby' && !room.slots.some(s => s?.userId === req.user.id)) {
     return res.status(403).json({ error: 'Private room' });
   }
   res.json({ room: roomToClient(room) });

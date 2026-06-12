@@ -138,7 +138,7 @@ export function signOut() {
 }
 
 export function googleClientConfigured() {
-  return !!import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  return !!String(import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
 }
 
 export function getGoogleSignInError() {
@@ -166,7 +166,9 @@ function ensureCustomGoogleButton() {
     if (gsiReady && window.google?.accounts?.id) {
       window.google.accounts.id.prompt(n => {
         if (n.isNotDisplayed() || n.isSkippedMoment()) {
-          showGoogleHint('Google popup blocked — allow popups or try again.');
+          const mount = document.getElementById('googleSignInMount');
+          if (mount) mount.querySelector('div[role=button]')?.click();
+          else showGoogleHint('Allow popups, or use the Google button below.');
         }
       });
       return;
@@ -183,6 +185,7 @@ function mountGsiButton(clientId) {
 
   window.google.accounts.id.initialize({
     client_id: clientId,
+    ux_mode: 'popup',
     callback: async (res) => {
       try {
         gsiError = null;
@@ -190,7 +193,10 @@ function mountGsiButton(clientId) {
         await signInWithGoogleCredential(res.credential);
       } catch (e) {
         gsiError = e.message || 'Google sign-in failed';
-        showGoogleHint(gsiError);
+        const msg = String(gsiError).toLowerCase().includes('invalid')
+          ? 'Google client not found. In Cloud Console use a Web application OAuth client and add this site under Authorized JavaScript origins.'
+          : gsiError;
+        showGoogleHint(msg);
       }
     },
     auto_select: getRemember(),
@@ -217,7 +223,7 @@ function mountGsiButton(clientId) {
 export function initGoogleSignIn() {
   ensureCustomGoogleButton();
 
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const clientId = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
   if (!clientId) {
     showGoogleHint('Google sign-in: set VITE_GOOGLE_CLIENT_ID in .env');
     return;
