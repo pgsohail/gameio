@@ -847,16 +847,20 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   if (room.hostId !== req.user.id) return res.status(403).json({ error: 'Host only' });
 
   syncLobbyFillers(room);
-  const emptySlots = room.slots.filter(s => !s).length;
-  const occupied = room.slots.filter(Boolean).length;
-  const autoFillers = !!room.rules?.allowBots;
-  if (emptySlots > 0 && !autoFillers) {
-    return res.status(400).json({
-      error: `Lobby not full yet (${occupied}/${room.maxPlayers} players). Wait for everyone to join.`,
-    });
+  const seated = room.slots.filter(Boolean);
+  const humans = seated.filter(s => !s.bot).length;
+  const humanoids = seated.filter(s => s.humanoid).length;
+  if (seated.length < 2) {
+    return res.status(400).json({ error: 'Need at least 2 players to start.' });
+  }
+  if (humans < 1) {
+    return res.status(400).json({ error: 'Need at least 1 human player.' });
+  }
+  if (!room.rules?.allowBots && humans < 2 && humanoids === 0) {
+    return res.status(400).json({ error: 'Need 2 humans, a traveler, or enable Fill with bots.' });
   }
 
-  const players = room.slots.map(slot => ({
+  const players = seated.map(slot => ({
     userId: slot.userId,
     name: slot.name,
     emoji: slot.emoji,
@@ -866,14 +870,6 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
     botBrain: slot.botBrain || null,
     isAdmin: slot.userId === room.hostId,
   }));
-
-  const humans = players.filter(p => !p.bot).length;
-  const humanoids = players.filter(p => p.humanoid).length;
-  if (players.length < 2) return res.status(400).json({ error: 'Need at least 2 players' });
-  if (humans < 1) return res.status(400).json({ error: 'Need at least 1 human player' });
-  if (!room.rules?.allowBots && humans < 2 && humanoids === 0) {
-    return res.status(400).json({ error: 'Need at least 2 human players (or enable bots)' });
-  }
 
   if (room.rules.randomOrder) {
     for (let i = players.length - 1; i > 0; i--) {
