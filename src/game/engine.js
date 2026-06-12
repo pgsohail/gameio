@@ -1759,6 +1759,83 @@ function drawCard(p,deck,again){
    AUCTION
 ============================================================ */
 let A=null;
+const AUC_HUMAN_TURN_MS=10_000;
+const AUC_BOT_TURN_MS=5_000;
+let aucTimerInterval=null;
+
+function clearAucTimer(){
+  if(A)A.turnDeadline=0;
+  $('aucTimer')?.classList.add('hidden');
+  if(aucTimerInterval){
+    clearInterval(aucTimerInterval);
+    aucTimerInterval=null;
+  }
+}
+
+function scheduleAucTurnTimer(cur){
+  if(!A||!cur||cur.id===A.leader)return;
+  A.turnLimitMs=cur.bot?AUC_BOT_TURN_MS:AUC_HUMAN_TURN_MS;
+  A.turnDeadline=Date.now()+A.turnLimitMs;
+  ensureAucTimer();
+  updateAucTimerBar();
+}
+
+function ensureAucTimer(){
+  if(aucTimerInterval)return;
+  aucTimerInterval=setInterval(()=>{
+    if(!A||!A.turnDeadline){
+      clearAucTimer();
+      return;
+    }
+    updateAucTimerBar();
+    if(Date.now()>=A.turnDeadline){
+      if(!isMpGame()||isMpHost())onAucTurnTimeout();
+    }
+  },100);
+}
+
+function updateAucTimerBar(){
+  const wrap=$('aucTimer');
+  const fill=$('aucTimerFill');
+  const label=$('aucTimerLabel');
+  if(!wrap||!fill||!A?.turnDeadline){
+    wrap?.classList.add('hidden');
+    return;
+  }
+  const cur=aucCur();
+  if(!cur||cur.id===A.leader){
+    wrap.classList.add('hidden');
+    return;
+  }
+  const limit=A.turnLimitMs||AUC_HUMAN_TURN_MS;
+  const left=Math.max(0,A.turnDeadline-Date.now());
+  const pct=Math.min(100,(left/limit)*100);
+  fill.style.width=`${pct}%`;
+  wrap.classList.remove('hidden');
+  if(label){
+    const secs=Math.ceil(left/1000);
+    label.textContent=left<=0?'Time up':`${secs}s to bid or it goes to the leader`;
+    label.classList.toggle('auc-timer__label--urgent',left<=3000);
+  }
+  fill.classList.toggle('auc-timer__fill--urgent',left<=3000);
+}
+
+function onAucTurnTimeout(){
+  if(!A||(isMpGame()&&!isMpHost()))return;
+  const cur=aucCur();
+  A.turnDeadline=0;
+  if(A.leader!=null){
+    const w=S.players[A.leader];
+    log(`⏱️ Time's up — <b>${A.tile.name}</b> goes to <b>${w.name}</b> for ${fmt(A.bid)}.`,w);
+    aucEnd(A.leader);
+    return;
+  }
+  if(cur){
+    log(`⏱️ <b>${cur.name}</b> ran out of time and folds.`,cur);
+    aucFold(cur);
+  }
+}
+
 function serializeAuction(){
   if(!A||!A.tile)return null;
   const tileIdx=TILES.indexOf(A.tile);
@@ -1768,6 +1845,8 @@ function serializeAuction(){
     active:[...A.active],idx:A.idx,
     history:A.history.map(h=>({...h})),
     afterPlayerId:A.afterPlayerId,afterAgain:!!A.afterAgain,
+    turnDeadline:A.turnDeadline||0,
+    turnLimitMs:A.turnLimitMs||AUC_HUMAN_TURN_MS,
   };
 }
 function setupAuctionModal(tile){
@@ -1799,6 +1878,7 @@ function updateTradeRestoreBar(){
 }
 function restoreAuctionState(data){
   if(!data){
+    clearAucTimer();
     if(A){$('aucModal')?.classList.add('hidden');A=null;updateAucRestoreBar();}
     return;
   }
@@ -1810,11 +1890,19 @@ function restoreAuctionState(data){
     active:[...(data.active||[])],idx:data.idx??0,
     history:(data.history||[]).map(h=>({...h})),
     afterPlayerId:data.afterPlayerId,afterAgain:!!data.afterAgain,
+    turnDeadline:data.turnDeadline||0,
+    turnLimitMs:data.turnLimitMs||AUC_HUMAN_TURN_MS,
   };
   if(!wasActive)setupAuctionModal(tile);
   $('aucModal')?.classList.remove('hidden');
   aucRender();
   updateAucRestoreBar();
+  if(A.turnDeadline&&Date.now()>=A.turnDeadline&&( !isMpGame()||isMpHost())){
+    onAucTurnTimeout();
+  }else if(A.turnDeadline){
+    ensureAucTimer();
+    updateAucTimerBar();
+  }
   if(!wasActive&&aucCur()?.bot&&isMpHost())setTimeout(aucStep,400);
 }
 function startAuction(tile,after={}){
@@ -1861,9 +1949,11 @@ function aucRender(){
     $('aucB50').disabled=cur.cash<A.bid+50;
     $('aucB100').disabled=cur.cash<A.bid+100;
   }
+  updateAucTimerBar();
 }
 function aucBid(p,amount){
   if(isMpGame()&&!p.bot&&p.userId!==getUser()?.id)return;
+  A.turnDeadline=0;
   A.bid=amount;A.leader=p.id;
   A.history.unshift({pid:p.id,amount});
   log(`🔨 <b>${p.name}</b> bids ${fmt(amount)} for ${A.tile.name}.`,p);
@@ -1873,6 +1963,7 @@ function aucBid(p,amount){
 }
 function aucFold(p){
   if(isMpGame()&&!p.bot&&p.userId!==getUser()?.id)return;
+  A.turnDeadline=0;
   A.active=A.active.filter(id=>id!==p.id);
   if(A.idx>=A.active.length)A.idx=0;
   log(`<b>${p.name}</b> folds.`,p);
@@ -1896,14 +1987,20 @@ function aucStep(){
   }
   const cur=aucCur();
   if(cur.id===A.leader){A.idx++;setTimeout(aucStep,60);return;}
+  scheduleAucTurnTimer(cur);
   if(cur.bot){
     $('aucStatus').textContent=`${cur.name} is thinking…`;aucRender();
     setTimeout(()=>{
+      if(!A||Date.now()>=A.turnDeadline){
+        if(A?.leader!=null)aucEnd(A.leader);
+        else aucFold(cur);
+        return;
+      }
       const next=A.bid+(A.bid<100?10:50);
       const bid=botNextBid(cur,A.tile,next,A.leader);
       if(bid&&cur.cash>=bid)aucBid(cur,bid);
       else aucFold(cur);
-    },botThinkMs(cur,'auction'));
+    },Math.min(botThinkMs(cur,'auction'),AUC_BOT_TURN_MS-200));
   }else aucRender();
 }
 $('aucB10').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+10);};
@@ -1912,6 +2009,7 @@ $('aucB100').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+100);};
 $('aucFold').onclick=()=>{const p=aucCur();if(!p.bot)aucFold(p);};
 function aucEnd(winnerId){
   if(isMpGame()&&!isMpHost())return;
+  clearAucTimer();
   $('aucModal').classList.add('hidden');
   $('aucModal')?.classList.remove('overlay--minimized');
   $('aucRestoreBar')?.classList.add('hidden');
