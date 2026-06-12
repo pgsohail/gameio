@@ -58,7 +58,17 @@ export function connectRoomSocket(onMessage) {
   ws.onmessage = ev => {
     try { onMessage(JSON.parse(ev.data)); } catch { /* ignore */ }
   };
+  ws.onerror = () => { /* reconnect handled by caller */ };
   return ws;
+}
+
+export function subscribeWhenOpen(ws, data) {
+  if (!ws) return;
+  const send = () => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+  };
+  if (ws.readyState === WebSocket.OPEN) send();
+  else ws.addEventListener('open', send, { once: true });
 }
 
 export function roomLink(id) {

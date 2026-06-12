@@ -14,6 +14,11 @@ import {
 } from '../ui/buildAnim.js';
 import { initLobby, setGameBrandVisible } from '../ui/lobby.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
+import { getUser } from '../lib/auth.js';
+import {
+  isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
+  registerStateSync, registerStateImporter, rebuildDeck,
+} from '../lib/multiplayer.js';
 
 /* ============================================================
    PROCEDURAL BOARD GENERATOR — any size, country groups
@@ -131,6 +136,93 @@ const UTL_MULT=[0,4,10,20,30];
 /* ============================================================
    LOBBY → GAME
 ============================================================ */
+function exportGameState() {
+  return {
+    turn: S.turn,
+    phase: S.phase,
+    dice: S.dice,
+    doubles: S.doubles,
+    pot: S.pot,
+    over: S.over,
+    pendingDouble: !!S.pendingDouble,
+    players: S.players.map(p => ({
+      id: p.id,
+      userId: p.userId,
+      name: p.name,
+      bot: p.bot,
+      emoji: p.emoji,
+      color: p.color,
+      isAdmin: p.isAdmin,
+      cash: p.cash,
+      pos: p.pos,
+      jail: p.jail,
+      jailTurns: p.jailTurns,
+      goojf: p.goojf,
+      dead: p.dead,
+      debt: p.debt ? { ...p.debt } : null,
+      powerCards: p.powerCards ? [...p.powerCards] : [],
+      rentSurge: p.rentSurge,
+      taxShield: p.taxShield,
+    })),
+    tiles: TILES.map(t => ({
+      owner: t.owner,
+      houses: t.houses,
+      mortgaged: t.mortgaged,
+    })),
+    fortuneKeys: S.fortune.map(c => c.x),
+    treasuryKeys: S.treasury.map(c => c.x),
+  };
+}
+
+function importGameState(state) {
+  if (!state || !state.players?.length) return;
+  S.turn = state.turn ?? 0;
+  S.phase = state.phase ?? 'idle';
+  S.dice = state.dice || [1, 1];
+  S.doubles = state.doubles ?? 0;
+  S.pot = state.pot ?? 0;
+  S.over = !!state.over;
+  S.pendingDouble = !!state.pendingDouble;
+  state.players.forEach((sp, i) => {
+    const p = S.players[i];
+    if (!p) return;
+    Object.assign(p, {
+      cash: sp.cash,
+      pos: sp.pos,
+      jail: sp.jail,
+      jailTurns: sp.jailTurns,
+      goojf: sp.goojf,
+      dead: sp.dead,
+      debt: sp.debt,
+      powerCards: sp.powerCards || [],
+      rentSurge: sp.rentSurge,
+      taxShield: sp.taxShield,
+    });
+  });
+  if (state.tiles) {
+    state.tiles.forEach((st, i) => {
+      const t = TILES[i];
+      if (!t) return;
+      t.owner = st.owner;
+      t.houses = st.houses;
+      t.mortgaged = st.mortgaged;
+    });
+  }
+  if (state.fortuneKeys) S.fortune = rebuildDeck(FORTUNE, state.fortuneKeys);
+  if (state.treasuryKeys) S.treasury = rebuildDeck(TREASURY, state.treasuryKeys);
+  Dice3D.setValues(S.dice[0], S.dice[1], false);
+  renderAll();
+}
+
+registerStateSync(exportGameState);
+registerStateImporter(importGameState);
+
+function isMpHost() {
+  if (!isMultiplayerActive()) return true;
+  const uid = getUser()?.id;
+  return S.players.some(p => p.isAdmin && p.userId === uid);
+}
+
 function startGameFromLobby({ rules, players, adminId = 0 }) {
   try {
     const per = rules.per;
@@ -141,6 +233,7 @@ function startGameFromLobby({ rules, players, adminId = 0 }) {
     };
     S.players = players.map((p, i) => ({
       id: i,
+      userId: p.userId || null,
       name: p.name,
       bot: p.bot,
       emoji: p.emoji,
@@ -318,9 +411,25 @@ function rollDice(){S.dice=[1+rand(6),1+rand(6)];Dice3D.roll(S.dice[0],S.dice[1]
 /* ============================================================
    RENDER
 ============================================================ */
-function renderAll(){renderPlayers();renderTiles();renderDock();renderTradeCard();renderPot();scheduleCountryBrackets(TILES,GROUPS,S.players);}
-function localHuman(){return S.players.find(p=>!p.bot&&!p.dead);}
-function turnMsg(p){return p.name==='You'?'Your turn — roll the dice.':`${p.name}'s turn — roll the dice.`;}
+function renderAll(){
+  renderPlayers();
+  renderTiles();
+  renderDock();
+  renderTradeCard();
+  renderPot();
+  scheduleCountryBrackets(TILES,GROUPS,S.players);
+  if (isMultiplayerActive() && !isApplyingRemote()) queueStateBroadcast();
+}
+function localHuman(){
+  const uid=getUser()?.id;
+  if(uid)return S.players.find(p=>!p.bot&&!p.dead&&p.userId===uid);
+  return S.players.find(p=>!p.bot&&!p.dead);
+}
+function turnMsg(p){
+  const me=localHuman();
+  if(me&&p.id===me.id)return 'Your turn — roll the dice.';
+  return `${p.name}'s turn — roll the dice.`;
+}
 function renderPot(){if($('potVal'))$('potVal').textContent=fmt(S.pot);}
 function playerTileLabel(p){
   const t=TILES[p.pos];
@@ -410,9 +519,13 @@ function renderTiles(){
 function renderDock(){
   const p=S.cur,ph=S.phase;
   if(!p)return;
+  const me=localHuman();
   const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle('hidden',!on);};
   const jailing=ph==='jail';
-  const humanTurn=!p.bot&&!S.over;
+  const humanTurn=!!me&&p.id===me.id&&!S.over;
+  if(!humanTurn&&!p.bot&&!S.over&&me){
+    msg(`${p.name}'s turn — waiting…`);
+  }
   show('rollBtn',humanTurn&&(ph==='roll'||jailing));
   if($('rollBtn'))$('rollBtn').textContent=jailing?'🎲 Roll for doubles':'🎲 Roll Dice';
   show('buyBtn',humanTurn&&ph==='buy');show('skipBtn',humanTurn&&ph==='buy');
@@ -839,7 +952,12 @@ function startTurn(){
 }
 function endTurn(){if(S.over)return;S.phase='idle';S.turn=(S.turn+1)%S.players.length;setTimeout(startTurn,420);}
 
-function humanRoll(){if(S.phase==='jail'){jailRoll(S.cur);return;}if(S.phase==='roll')doRoll(S.cur);}
+function humanRoll(){
+  const me=localHuman();
+  if(!me||S.cur.id!==me.id)return;
+  if(S.phase==='jail'){jailRoll(S.cur);return;}
+  if(S.phase==='roll')doRoll(S.cur);
+}
 function doRoll(p){
   S.phase='moving';renderDock();
   const total=rollDice();
@@ -1774,6 +1892,7 @@ function openManage(p){
 ============================================================ */
 function botTurn(){
   const p=S.cur;if(S.over||p.dead||!p.bot)return;
+  if(isMultiplayerActive()&&!isMpHost())return;
   if(p.jail){
     if(p.goojf>0){useJailCard(p);return;}
     if(p.cash>=400){payJailFine(p);return;}

@@ -4,7 +4,10 @@ import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
   onAuthChange, restoreSession, setRemember, signOut,
 } from '../lib/auth.js';
-import { connectRoomSocket, getToken, roomLink, roomsApi } from '../lib/api.js';
+import { connectRoomSocket, getToken, roomLink, roomsApi, subscribeWhenOpen } from '../lib/api.js';
+import {
+  attachMultiplayer, detachMultiplayer, handleSocketMessage,
+} from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 
 const TOKEN_EMOJI = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
@@ -35,6 +38,8 @@ let roomSocket = null;
 let roomsPanelOpen = false;
 let rulesSaveTimer = null;
 let gameStarted = false;
+let wsReconnectTimer = null;
+let lobbyPollTimer = null;
 
 const DIFF_HINTS = {
   relaxed: 'Gentler bots and slower bidding.',
@@ -242,47 +247,88 @@ function scheduleRulesSave() {
   }, 450);
 }
 
+function stopLobbyPoll() {
+  if (lobbyPollTimer) clearInterval(lobbyPollTimer);
+  lobbyPollTimer = null;
+}
+
+function startLobbyPoll(roomId) {
+  stopLobbyPoll();
+  lobbyPollTimer = setInterval(async () => {
+    if (gameStarted || currentRoomId !== roomId) {
+      stopLobbyPoll();
+      return;
+    }
+    try {
+      const { room } = await roomsApi.get(roomId);
+      if (room.status === 'lobby') renderBoardLobby(room);
+    } catch { /* room expired */ }
+  }, 2000);
+}
+
+function onRoomSocketMessage(roomId, msg) {
+  const u = getUser();
+  if (handleSocketMessage(msg, u?.id)) return;
+  if (msg.type === 'room_update' && msg.room?.id === roomId) {
+    renderBoardLobby(msg.room);
+  }
+  if (msg.type === 'game_start') {
+    startFromPayload(msg);
+  }
+}
+
 function startFromPayload(payload) {
   if (gameStarted) return;
   const u = getUser();
   if (!u || !onStartGame) return;
   gameStarted = true;
+  stopLobbyPoll();
   const adminId = payload.adminId ?? 0;
+  const humanCount = payload.players.filter(p => !p.bot).length;
+  const isMp = humanCount > 1;
   const players = payload.players.map((p, i) => ({
+    userId: p.userId,
     name: p.userId === u.id ? u.name : p.name,
-    bot: p.userId !== u.id && (p.bot || p.userId?.startsWith('bot_')),
+    bot: !!p.bot,
     emoji: p.emoji,
     color: p.color,
     isAdmin: i === adminId,
   }));
-  disconnectRoomSocket();
-  currentRoomId = null;
+  const rid = String(payload.roomId || currentRoomId || '').toLowerCase();
+  if (rid) currentRoomId = rid;
   try {
-    onStartGame({ rules: payload.rules, players, adminId });
+    onStartGame({ rules: payload.rules, players, adminId, multiplayer: isMp });
+    if (isMp && roomSocket && rid) {
+      attachMultiplayer(roomSocket, rid);
+      subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
+    } else {
+      disconnectRoomSocket();
+    }
   } catch (e) {
     gameStarted = false;
+    detachMultiplayer();
     alert(e?.message || 'Could not start the game. Try refreshing and creating a new room.');
   }
 }
 
 function disconnectRoomSocket() {
+  clearTimeout(wsReconnectTimer);
+  wsReconnectTimer = null;
   roomSocket?.close();
   roomSocket = null;
 }
 
 function subscribeRoom(roomId) {
   disconnectRoomSocket();
-  roomSocket = connectRoomSocket(msg => {
-    if (msg.type === 'room_update' && msg.room?.id === roomId) {
-      renderBoardLobby(msg.room);
-    }
-    if (msg.type === 'game_start') {
-      startFromPayload(msg);
+  const rid = String(roomId).toLowerCase();
+  roomSocket = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
+  subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
+  roomSocket?.addEventListener('close', () => {
+    if (currentRoomId === rid && !gameStarted) {
+      wsReconnectTimer = setTimeout(() => subscribeRoom(rid), 1200);
     }
   });
-  roomSocket?.addEventListener('open', () => {
-    roomSocket.send(JSON.stringify({ type: 'subscribe', roomId }));
-  });
+  startLobbyPoll(rid);
 }
 
 function exitBoardLobby() {
@@ -291,7 +337,10 @@ function exitBoardLobby() {
   $('hubTop')?.classList.remove('hidden');
   document.body.classList.remove('room-lobby-mode');
   setGameBrandVisible(false);
+  stopLobbyPoll();
+  detachMultiplayer();
   disconnectRoomSocket();
+  gameStarted = false;
   currentRoomId = null;
   lastRoomRules = null;
   const url = new URL(location.href);
@@ -382,7 +431,9 @@ function renderBoardLobby(room) {
   const sub = $('boardWaitSub');
   if (needsJoin) {
     if (title) title.textContent = full ? 'Room is full' : 'Join this game';
-    if (sub) sub.textContent = full ? 'Spectate or return home' : 'Select your token & color';
+    if (sub) sub.textContent = full
+      ? 'All seats are taken — you cannot join this game.'
+      : 'Select your token & color';
     $('boardJoinBtn')?.toggleAttribute('disabled', full);
     renderBoardJoinColors();
   } else if (isHost) {
@@ -674,8 +725,13 @@ async function openInviteRoom() {
   if (!u) return;
   try {
     const { room } = await roomsApi.get(id);
+    const inRoom = room.slots.some(s => s?.userId === u.id);
     if (room.status !== 'lobby') {
       alert('This game already started or ended.');
+      return;
+    }
+    if (room.slots.every(Boolean) && !inRoom) {
+      alert('This room is full — all player seats are taken.');
       return;
     }
     enterBoardLobby(room);
@@ -724,8 +780,14 @@ async function handleRoomDeepLink() {
 
   try {
     const { room } = await roomsApi.get(id);
+    const u = getUser();
+    const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
     if (room.status !== 'lobby') {
       showInviteError(id, 'This game already started or ended.', true);
+      return false;
+    }
+    if (room.slots.every(Boolean) && !inRoom) {
+      showInviteError(id, 'This room is full — all player seats are taken.', true);
       return false;
     }
     enterBoardLobby(room);

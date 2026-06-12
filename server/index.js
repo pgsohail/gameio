@@ -113,7 +113,14 @@ function pruneRooms() {
   const now = Date.now();
   for (const [id, room] of rooms) {
     const occupied = room.slots.filter(Boolean).length;
-    if (room.status !== 'lobby' || occupied === 0 || now - room.updatedAt > ROOM_TTL_MS) {
+    if (room.status === 'playing') {
+      if (now - room.updatedAt > ROOM_TTL_MS * 2) {
+        rooms.delete(id);
+        roomSubs.delete(id);
+      }
+      continue;
+    }
+    if (occupied === 0 || now - room.updatedAt > ROOM_TTL_MS) {
       rooms.delete(id);
       roomSubs.delete(id);
     }
@@ -152,6 +159,22 @@ function broadcastRoom(roomId) {
   if (!subs) return;
   for (const ws of subs) {
     if (ws.readyState === 1) ws.send(payload);
+  }
+}
+
+function broadcastGameState(roomId, state, fromWs, fromUserId) {
+  const subs = roomSubs.get(roomId);
+  if (!subs) return;
+  const seq = Date.now();
+  const payload = JSON.stringify({
+    type: 'game_state',
+    roomId,
+    state,
+    seq,
+    from: fromUserId,
+  });
+  for (const ws of subs) {
+    if (ws.readyState === 1 && ws !== fromWs) ws.send(payload);
   }
 }
 
@@ -365,8 +388,12 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   room.status = 'playing';
   room.updatedAt = Date.now();
 
+  room.players = players;
+  room.adminId = finalAdminId;
+
   const payload = {
     type: 'game_start',
+    roomId: room.id,
     rules: room.rules,
     players,
     adminId: finalAdminId,
@@ -380,9 +407,6 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
       ws.send(JSON.stringify({ ...payload, yourUserId: uid }));
     }
   }
-
-  rooms.delete(room.id);
-  roomSubs.delete(room.id);
 
   res.json({ ...payload, yourUserId: req.user.id });
 });
@@ -430,11 +454,32 @@ wss.on('connection', (ws, req) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'subscribe' && msg.roomId) {
-      ws.roomId = msg.roomId;
-      if (!roomSubs.has(msg.roomId)) roomSubs.set(msg.roomId, new Set());
-      roomSubs.get(msg.roomId).add(ws);
-      const room = rooms.get(msg.roomId);
-      if (room) ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room) }));
+      const rid = String(msg.roomId).trim().toLowerCase();
+      ws.roomId = rid;
+      if (!roomSubs.has(rid)) roomSubs.set(rid, new Set());
+      roomSubs.get(rid).add(ws);
+      const room = rooms.get(rid);
+      if (room) {
+        ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room) }));
+        if (room.status === 'playing' && room.players) {
+          ws.send(JSON.stringify({
+            type: 'game_start',
+            roomId: room.id,
+            rules: room.rules,
+            players: room.players,
+            adminId: room.adminId ?? 0,
+            yourUserId: ws.userId,
+          }));
+        }
+      }
+    }
+    if (msg.type === 'game_state' && msg.roomId && msg.state) {
+      const rid = String(msg.roomId).trim().toLowerCase();
+      const room = rooms.get(rid);
+      if (room?.status === 'playing') {
+        room.updatedAt = Date.now();
+        broadcastGameState(rid, msg.state, ws, ws.userId);
+      }
     }
   });
 
