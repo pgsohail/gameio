@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import { pickHumanoidName } from './humanoidNames.js';
 
 export const HUMANOID_CAP = 3;
-export const HUMANOID_STALE_MS = 2.5 * 60 * 1000;
+export const HUMANOID_STALE_MS = 2 * 60 * 1000;
 const JOIN_MIN_MS = 8_000;
 const JOIN_MAX_MS = 48_000;
 const STALE_JOIN_MIN_MS = 10_000;
@@ -171,7 +171,7 @@ export function processHumanoidQueue(rooms, humanCountFn, deps) {
       deps.broadcastRoom(room.id);
       anyBroadcast = true;
     }
-    if (room.status === 'lobby' && !room.private && !room.rules?.allowBots && !room.humanoidHosted) {
+    if (room.status === 'lobby' && !room.private && !room.humanoidHosted) {
       scheduleHumanoidJoins(room, humanCountFn(room), deps);
     }
   }

@@ -229,7 +229,7 @@ function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
     adminSlot: 0,
     maxPlayers: max,
     slots: Array.from({ length: max }, () => null),
-    rules: { ...rules, title: 'Buildup.io', allowBots: false },
+    rules: { ...rules, title: 'Buildup.io' },
     createdAt: Date.now(),
     updatedAt: Date.now(),
     humanoidBudget: pickHumanoidBudget(),
@@ -357,8 +357,8 @@ function hoidCtx() {
   });
 }
 
-function privateMastermindTarget(room) {
-  if (!room.rules?.allowBots || !room.private) return 0;
+function mastermindFillTarget(room) {
+  if (!room.rules?.allowBots) return 0;
   const diff = room.rules.diff || 'classic';
   const humans = humanCount(room);
   const maxFillers = Math.max(0, room.slots.length - humans);
@@ -378,19 +378,19 @@ function clearPrivateAutoSeats(room) {
 
 function syncLobbyFillers(room) {
   if (room.status !== 'lobby') return;
-  if (room.rules?.allowBots && room.private) {
+  if (room.rules?.allowBots) {
     syncRoomBots(room);
     return;
   }
-  clearPrivateAutoSeats(room);
-  if (!room.rules?.allowBots) {
+  if (room.private) clearPrivateAutoSeats(room);
+  if (!room.private) {
     scheduleHumanoidJoins(room, humanCount(room), hoidCtx());
   }
 }
 
 function syncRoomBots(room) {
-  if (!room.rules?.allowBots || !room.private) return;
-  const target = privateMastermindTarget(room);
+  if (!room.rules?.allowBots) return;
+  const target = mastermindFillTarget(room);
   const deps = hoidCtx();
   const usedNames = new Set(room.slots.filter(Boolean).map(s => s.name));
   const humanoidIdx = [];
@@ -681,7 +681,7 @@ app.post('/api/rooms/quick-join', authMiddleware, (req, res) => {
     return res.status(503).json({ error: 'Server busy. Try again in a moment.' });
   }
 
-  const playRules = { ...(rules || {}), allowBots: false, title: 'Buildup.io' };
+  const playRules = { ...(rules || {}), title: 'Buildup.io' };
   room = createPublicRoom(user, { rules: playRules, maxPlayers, emoji, color });
   syncLobbyFillers(room);
   broadcastRoom(room.id);
@@ -849,8 +849,8 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   syncLobbyFillers(room);
   const emptySlots = room.slots.filter(s => !s).length;
   const occupied = room.slots.filter(Boolean).length;
-  const privateFillers = room.private && room.rules?.allowBots;
-  if (emptySlots > 0 && !privateFillers) {
+  const autoFillers = !!room.rules?.allowBots;
+  if (emptySlots > 0 && !autoFillers) {
     return res.status(400).json({
       error: `Lobby not full yet (${occupied}/${room.maxPlayers} players). Wait for everyone to join.`,
     });

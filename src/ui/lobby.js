@@ -516,9 +516,9 @@ function renderBoardLobby(room) {
   const allowBots = !!room.rules?.allowBots;
   const humanoids = room.slots.filter(s => s && s.humanoid).length;
   const minHumans = 1;
-  const privateFillers = allowBots && room.private;
+  const autoFillers = allowBots;
   const canLaunch = total >= 2 && humans >= minHumans
-    && (full || privateFillers || (!allowBots && humanoids >= 1))
+    && (full || autoFillers || (!allowBots && humanoids >= 1))
     && (allowBots || humans >= 2 || humanoids >= 1);
 
   playLobbySlotSounds(room);
@@ -558,14 +558,14 @@ function renderBoardLobby(room) {
     launchHint?.classList.toggle('hidden', canLaunch);
     if (launchHint && !canLaunch) {
       if (humans < minHumans) {
-        launchHint.textContent = privateFillers
+        launchHint.textContent = autoFillers
           ? 'Need at least 1 player — travelers fill seats by difficulty.'
           : humans < 2 && humanoids < 1
             ? 'Need another player — or wait for a traveler to join.'
             : `Waiting for players (${total}/${room.maxPlayers})…`;
-      } else if (!full && !privateFillers) {
+      } else if (!full && !autoFillers) {
         launchHint.textContent = `Waiting for players (${humans}/${room.maxPlayers})…`;
-      } else if (!full && privateFillers) {
+      } else if (!full && autoFillers) {
         launchHint.textContent = `Ready when you are — ${total} player${total === 1 ? '' : 's'} seated (${room.rules?.diff || 'classic'}).`;
       } else {
         launchHint.textContent = 'Need at least 2 players to start.';
