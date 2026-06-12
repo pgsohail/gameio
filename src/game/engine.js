@@ -45,7 +45,9 @@ function ensureBotsReady() {
   botsReady = true;
 }
 function botThinkMs(p, kind = 'roll') {
-  return p.botBrain === 'mastermind' ? mastermindThinkTime(kind) : 800 + Math.random() * 400;
+  if (p.botBrain === 'mastermind') return Math.round(mastermindThinkTime(kind) * 0.45);
+  const fast = { roll: 320, build: 280, auction: 400, trade: 500 };
+  return (fast[kind] || 320) + Math.random() * 220;
 }
 
 /* ============================================================
@@ -336,7 +338,7 @@ function postSyncTurn() {
   if (!isMpGame() || isApplyingRemote()) return;
   const p = S.cur;
   if (!p) return;
-  if (p.bot && isMpHost()) setTimeout(botTurn, 150);
+  if (p.bot && isMpHost()) setTimeout(botTurn, 80);
 }
 
 registerStateSync(exportGameState);
@@ -352,6 +354,14 @@ function isMyTurn() {
   const me = localHuman();
   const cur = S.cur;
   return !!(me && cur && cur.userId === me.userId && !cur.bot);
+}
+
+function mayControlTurn(p) {
+  p = p ?? S.cur;
+  if (!p) return false;
+  if (!isMpGame()) return true;
+  if (p.bot) return isMpHost();
+  return isMyTurn();
 }
 
 function assertMyTurn() {
@@ -1335,14 +1345,14 @@ function startTurn(){
   else{S.phase='roll';msg(turnMsg(p));}
   renderAll();
   if(isMpGame()){
-    if(p.bot&&isMpHost())setTimeout(botTurn,150);
+    if(p.bot&&isMpHost())setTimeout(botTurn,80);
     return;
   }
-  if(p.bot)setTimeout(botTurn,150);
+  if(p.bot)setTimeout(botTurn,80);
 }
 function endTurn(){
   if(S.over)return;
-  if(isMpGame()&&!isMyTurn())return;
+  if(!mayControlTurn())return;
   markTurnEngagement();
   S.phase='idle';
   S.turn=(S.turn+1)%S.players.length;
@@ -1357,7 +1367,7 @@ function humanRoll(){
   if(S.phase==='roll')doRoll(S.cur);
 }
 function doRoll(p){
-  if(isMpGame()&&!isMyTurn())return;
+  if(!mayControlTurn(p))return;
   S.phase='moving';renderDock();
   const {total,startAt}=rollDiceAndBroadcast(p);
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
@@ -1460,7 +1470,7 @@ function computeRent(t,opts={}){
   return r;
 }
 function buyCurrent(p){
-  if(isMpGame()&&!isMyTurn())return false;
+  if(!mayControlTurn(p))return false;
   const t=TILES[p.pos];
   if(t.owner!=null||!t.price||p.cash<t.price)return false;
   const groupsBefore=new Set(ownedGroupIds(p));
@@ -1479,10 +1489,10 @@ function finishMovePhase(p,rollAgain){
   const runBots=!isMpGame()||isMpHost();
   if(rollAgain&&!p.jail){
     S.phase='roll';renderDock();
-    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),botThinkMs(p));}
+    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),400);}
     else msg('Doubles! Roll again.');
   }else if(p.bot){
-    if(runBots)setTimeout(()=>{botRunBuildPhase(p);botMaybeProposeTrade(p);endTurn();},botThinkMs(p,'build'));
+    if(runBots)setTimeout(()=>{botRunBuildPhase(p);botMaybeProposeTrade(p);endTurn();},350);
   }else{
     S.phase='end';
     msg(isMyTurn()?'Tap your properties to upgrade — or end your turn.':`Waiting for ${p.name}…`);
@@ -1496,16 +1506,16 @@ function payJailFine(p){
   p.jail=false;p.jailTurns=0;
   log(`<b>${p.name}</b> pays the $100 fine and walks free.`,p);
   S.phase='roll';msg('Free again — roll the dice.');renderAll();
-  if(p.bot)setTimeout(()=>doRoll(p),800);
+  if(p.bot)setTimeout(()=>doRoll(p),400);
 }
 function useJailCard(p){
   if(p.goojf<1)return;p.goojf--;p.jail=false;p.jailTurns=0;
   log(`🎟️ <b>${p.name}</b> uses a Get Out of Prison Free card.`,p);
   S.phase='roll';msg('Free again — roll the dice.');renderAll();
-  if(p.bot)setTimeout(()=>doRoll(p),800);
+  if(p.bot)setTimeout(()=>doRoll(p),400);
 }
 function jailRoll(p){
-  if(isMpGame()&&!isMyTurn())return;
+  if(!mayControlTurn(p))return;
   S.phase='moving';renderDock();
   const {total,startAt}=rollDiceAndBroadcast(p);
   setTimeout(()=>{
@@ -2453,7 +2463,7 @@ function botTurn(){
     msg(`${p.name} is rolling…`);
     doRoll(p);
   };
-  setTimeout(act,botThinkMs(p,'roll'));
+  setTimeout(act, Math.min(botThinkMs(p, 'roll'), 650));
 }
 
 /* ============================================================
@@ -2488,7 +2498,7 @@ $('tradeRestoreBar')?.addEventListener('click',()=>{
 $('propModal').onclick=e=>{if(e.target.id==='propModal')closePropDetail();};
 $('manageClose')?.addEventListener('click',()=>$('manageModal')?.classList.add('hidden'));
 function afterAction(toAuction,tile){
-  if(isMpGame()&&!isMyTurn())return;
+  if(!mayControlTurn())return;
   const again=S.pendingDouble;S.pendingDouble=false;
   if(toAuction)startAuction(tile,{playerId:S.cur?.id,again});
   else finishMovePhase(S.cur,again);

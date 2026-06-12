@@ -42,6 +42,7 @@ let roomSocket = null;
 let roomsPanelOpen = false;
 let rulesSaveTimer = null;
 let gameStarted = false;
+let gameMultiplayer = false;
 let gamePausedAway = false;
 let wsReconnectTimer = null;
 let lobbyPollTimer = null;
@@ -297,6 +298,7 @@ function startFromPayload(payload) {
   const u = getUser();
   if (!u || !onStartGame) return;
   gameStarted = true;
+  gameMultiplayer = isMp;
   stopLobbyPoll();
   const adminId = payload.adminId ?? 0;
   const humanCount = payload.players.filter(p => !p.bot).length;
@@ -322,6 +324,7 @@ function startFromPayload(payload) {
       enableMultiplayer(roomSocket, rid);
       subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
     } else {
+      detachMultiplayer();
       disconnectRoomSocket();
     }
   } catch (e) {
@@ -350,7 +353,7 @@ function subscribeRoom(roomId) {
       const ws = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
       roomSocket = ws;
       subscribeWhenOpen(ws, { type: 'subscribe', roomId: rid });
-      if (gameStarted) enableMultiplayer(ws, rid);
+      if (gameStarted && gameMultiplayer) enableMultiplayer(ws, rid);
     }, 1000);
   });
   startLobbyPoll(rid);
@@ -372,6 +375,7 @@ function exitBoardLobby() {
   detachMultiplayer();
   disconnectRoomSocket();
   gameStarted = false;
+  gameMultiplayer = false;
   currentRoomId = null;
   lastRoomRules = null;
   lobbyWasSeated = false;
@@ -1137,8 +1141,9 @@ async function rejoinActiveGame(room) {
   }));
 
   subscribeRoom(room.id);
-  onStartGame({ rules: room.rules, players, adminId, multiplayer: humans > 1 });
-  enableMultiplayer(roomSocket, room.id);
+  gameMultiplayer = humans > 1;
+  onStartGame({ rules: room.rules, players, adminId, multiplayer: gameMultiplayer });
+  if (gameMultiplayer) enableMultiplayer(roomSocket, room.id);
   subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: room.id });
   if (room.gameState) applyGameState(room.gameState);
   return true;
