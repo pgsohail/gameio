@@ -689,7 +689,7 @@ function renderPortfolioCard(){
   const show=!!p&&!S.over;
   card.classList.toggle('hidden',!show);
   if(!show)return;
-  const countEl=$('portfolioCount');
+  const countEl=$('portfolioOwned');
   const netEl=$('portfolioNet');
   const cashEl=$('portfolioCash');
   const list=$('portfolioList');
@@ -697,7 +697,8 @@ function renderPortfolioCard(){
     const ga=a.group||'',gb=b.group||'';
     return ga.localeCompare(gb)||a.name.localeCompare(b.name);
   });
-  if(countEl)countEl.textContent=String(tiles.length);
+  const n=tiles.length;
+  if(countEl)countEl.textContent=n===1?'1 property owned':`${n} properties owned`;
   if(netEl)netEl.textContent=fmt(netWorth(p));
   if(cashEl)cashEl.textContent=`${fmt(p.cash)} cash`;
   if(!list)return;
@@ -707,8 +708,8 @@ function renderPortfolioCard(){
   }
   list.innerHTML=tiles.map(t=>{
     const iso=t.iso||GROUPS[t.group]?.iso;
-    const flag=iso?flagTileHTML(iso,20):`<span class="portfolio-flag-fallback">${GROUPS[t.group]?.flag||'🌐'}</span>`;
-    const label=t.name.length>22?t.name.slice(0,21)+'…':t.name;
+    const flag=iso?flagTileHTML(iso,24):`<span class="portfolio-flag-fallback">${GROUPS[t.group]?.flag||'🌐'}</span>`;
+    const label=t.name.length>28?t.name.slice(0,27)+'…':t.name;
     const build=portfolioBuildBadge(p,t);
     return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" data-idx="${t.idx}" role="button" tabindex="0">
       <span class="portfolio-flag">${flag}</span>
