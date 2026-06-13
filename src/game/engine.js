@@ -2067,7 +2067,16 @@ function startAuction(tile,after={}){
 }
 function aucCur(){return S.players[A.active[A.idx%A.active.length]];}
 function aucRender(){
-  $('aucBid').textContent=fmt(A.bid);
+  const bidEl=$('aucBid');
+  const newBid=fmt(A.bid);
+  if(bidEl){
+    if(bidEl.textContent!==newBid){
+      bidEl.textContent=newBid;
+      bidEl.classList.remove('auc-bid-amount--pop');
+      void bidEl.offsetWidth;
+      bidEl.classList.add('auc-bid-amount--pop');
+    }else bidEl.textContent=newBid;
+  }
   const lead=A.leader!=null?S.players[A.leader]:null;
   $('aucLeader').textContent=lead?`${lead.name} is leading`:'No bids yet';
   const lav=$('aucLeadAv');
@@ -2427,12 +2436,22 @@ function syncTradeSliders(){
     if($('tradeWantWallet'))$('tradeWantWallet').textContent='—';
   }
 }
+function tickTradeCashVal(el){
+  if(!el)return;
+  el.classList.remove('trade-slider__val--tick');
+  void el.offsetWidth;
+  el.classList.add('trade-slider__val--tick');
+}
 function bindTradeSliders(){
   [['tradeOfferCash','tradeOfferCashVal'],['tradeWantCash','tradeWantCashVal']].forEach(([id,valId])=>{
     const el=$(id);
     if(!el||el.dataset.bound)return;
     el.dataset.bound='1';
-    el.oninput=()=>{$(valId).textContent=fmt(+el.value);};
+    el.oninput=()=>{
+      const valEl=$(valId);
+      valEl.textContent=fmt(+el.value);
+      tickTradeCashVal(valEl);
+    };
   });
 }
 function openTrade(){
