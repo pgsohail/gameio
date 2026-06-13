@@ -186,13 +186,29 @@ function syncLobbyChatCompose(canSend) {
   if (send) send.disabled = !canSend;
 }
 
+function showRoomChat(mode = 'lobby') {
+  const dock = $('roomChatDock');
+  if (!dock) return;
+  dock.classList.remove('hidden', 'room-chat-dock--lobby', 'room-chat-dock--game');
+  dock.classList.add(mode === 'game' ? 'room-chat-dock--game' : 'room-chat-dock--lobby');
+}
+
+function hideRoomChat() {
+  $('roomChatDock')?.classList.add('hidden');
+}
+
+function refreshRoomChatAccess({ inRoom = false } = {}) {
+  const canSend = !!inRoom || (gameStarted && gameMultiplayer && !!currentRoomId);
+  syncLobbyChatCompose(canSend);
+}
+
 function renderLobbyChatFeed(scrollToEnd = false) {
   const feed = $('lobbyChatFeed');
   if (!feed) return;
   const u = getUser();
 
   if (!lobbyChatMessages.length) {
-    feed.innerHTML = '<p class="lobby-chat__empty">Say hi to everyone in the lobby…</p>';
+    feed.innerHTML = '<p class="lobby-chat__empty">Say hi — chat stays open during the game.</p>';
     return;
   }
 
@@ -505,6 +521,12 @@ function startFromPayload(payload) {
   }));
   const rid = String(payload.roomId || currentRoomId || '').toLowerCase();
   if (rid) currentRoomId = rid;
+  if (isMp) {
+    showRoomChat('game');
+    refreshRoomChatAccess({ inRoom: true });
+  } else {
+    hideRoomChat();
+  }
   $('hubTop')?.classList.add('hidden');
   $('scene')?.classList.remove('hidden');
   persistRoomInUrl(rid);
@@ -576,6 +598,7 @@ function exitBoardLobby() {
   url.searchParams.delete('room');
   history.replaceState(null, '', url.pathname + url.search);
   sessionStorage.removeItem(ROOM_SESSION_KEY);
+  hideRoomChat();
   clearLobbyChat();
   startLiveStatsPoll();
   renderRoomList();
@@ -583,7 +606,6 @@ function exitBoardLobby() {
 
 function enterBoardLobby(room) {
   stopLiveStatsPoll();
-  clearLobbyChat();
   currentRoomId = room.id;
   prevSlotSnapshot = null;
   sessionStorage.removeItem(LOBBY_VIEW_KEY);
@@ -597,6 +619,7 @@ function enterBoardLobby(room) {
   persistRoomInUrl(room.id);
   updateBoardLinkUI(room.id);
   $('boardShareBox')?.classList.toggle('hidden', !room.private);
+  showRoomChat('lobby');
   renderBoardLobby(room);
   subscribeRoom(room.id);
 }
@@ -801,7 +824,7 @@ function renderBoardLobby(room) {
     if (sub) sub.textContent = 'Waiting for the admin to launch';
   }
 
-  syncLobbyChatCompose(inRoom);
+  refreshRoomChatAccess({ inRoom });
 }
 
 async function createLobbyRoom() {
@@ -1076,6 +1099,8 @@ function resetGameSession() {
   $('scene')?.classList.add('hidden');
   $('roomLobby')?.classList.add('hidden');
   $('winModal')?.classList.add('hidden');
+  hideRoomChat();
+  clearLobbyChat();
   document.body.classList.remove('room-lobby-mode');
   setGameBrandVisible(false);
   detachMultiplayer();
@@ -1174,6 +1199,7 @@ function pauseSessionToHome() {
   $('hud')?.classList.add('hidden');
   $('scene')?.classList.add('hidden');
   $('roomLobby')?.classList.add('hidden');
+  hideRoomChat();
   document.body.classList.remove('room-lobby-mode');
   setGameBrandVisible(false);
   $('lobby')?.classList.remove('hidden');
@@ -1192,10 +1218,15 @@ function resumePausedSession() {
   if (gameStarted) {
     $('hud')?.classList.remove('hidden');
     setGameBrandVisible(true);
+    if (gameMultiplayer) {
+      showRoomChat('game');
+      refreshRoomChatAccess({ inRoom: true });
+    }
   } else if (currentRoomId) {
     $('roomLobby')?.classList.remove('hidden');
     document.body.classList.add('room-lobby-mode');
     setGameBrandVisible(true);
+    showRoomChat('lobby');
   }
 }
 
@@ -1385,6 +1416,10 @@ async function rejoinActiveGame(room) {
 
   subscribeRoom(room.id);
   gameMultiplayer = humans > 1;
+  if (gameMultiplayer) {
+    showRoomChat('game');
+    refreshRoomChatAccess({ inRoom: true });
+  }
   onStartGame({ rules: room.rules, players, adminId, multiplayer: gameMultiplayer });
   if (gameMultiplayer) enableMultiplayer(roomSocket, room.id);
   subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: room.id });

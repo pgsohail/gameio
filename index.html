@@ -367,21 +367,6 @@
         </button>
       </div>
     </div>
-    <div class="lobby-chat" id="lobbyChat">
-      <div class="lobby-chat__head">
-        <span class="lobby-chat__title">Chat</span>
-        <button type="button" class="lobby-chat__mute" id="lobbyChatMute" title="Toggle chat sounds" aria-label="Toggle chat sounds">🔊</button>
-      </div>
-      <div class="lobby-chat__feed" id="lobbyChatFeed" role="log" aria-live="polite" aria-relevant="additions">
-        <p class="lobby-chat__empty" id="lobbyChatEmpty">Say hi to everyone in the lobby…</p>
-      </div>
-      <form class="lobby-chat__compose" id="lobbyChatForm">
-        <input type="text" class="lobby-chat__input" id="lobbyChatInput" placeholder="Say something…" maxlength="280" autocomplete="off" spellcheck="true">
-        <button type="submit" class="lobby-chat__send" aria-label="Send message">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 11.5L21 4L14.5 21L11.5 13.5L3 11.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-        </button>
-      </form>
-    </div>
     <button type="button" class="room-leave" id="boardLeaveBtn">← Leave room</button>
   </aside>
 
@@ -462,6 +447,24 @@
       </button>
     </div>
   </aside>
+</div>
+
+<div id="roomChatDock" class="room-chat-dock hidden">
+  <div class="lobby-chat" id="lobbyChat">
+    <div class="lobby-chat__head">
+      <span class="lobby-chat__title">Chat</span>
+      <button type="button" class="lobby-chat__mute" id="lobbyChatMute" title="Toggle chat sounds" aria-label="Toggle chat sounds">🔊</button>
+    </div>
+    <div class="lobby-chat__feed" id="lobbyChatFeed" role="log" aria-live="polite" aria-relevant="additions">
+      <p class="lobby-chat__empty" id="lobbyChatEmpty">Say hi to everyone in the lobby…</p>
+    </div>
+    <form class="lobby-chat__compose" id="lobbyChatForm">
+      <input type="text" class="lobby-chat__input" id="lobbyChatInput" placeholder="Say something…" maxlength="280" autocomplete="off" spellcheck="true">
+      <button type="submit" class="lobby-chat__send" aria-label="Send message">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 11.5L21 4L14.5 21L11.5 13.5L3 11.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+    </form>
+  </div>
 </div>
 
 <div id="hud" class="hidden">

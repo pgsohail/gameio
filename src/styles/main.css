@@ -3242,9 +3242,29 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
 }
 .room-leave:hover{color:#fff;background:rgba(65,70,78,.55)}
 
+/* —— Room chat dock (lobby + in-game) —— */
+.room-chat-dock{
+  position:fixed;z-index:160;pointer-events:none;
+  display:flex;flex-direction:column;min-height:0;
+}
+.room-chat-dock > .lobby-chat{pointer-events:auto;flex:1;min-height:0;height:100%}
+.room-chat-dock.hidden{display:none!important}
+.room-chat-dock--lobby{
+  top:calc(var(--hud-gutter, 14px) + 168px);
+  bottom:calc(var(--hud-gutter, 14px) + 56px);
+  left:var(--hud-gutter, 14px);
+  width:min(280px,22vw);min-width:240px;
+}
+.room-chat-dock--game{
+  top:var(--hud-gutter, 14px);
+  bottom:calc(var(--hud-gutter, 14px) + min(52vh,440px) + 14px);
+  left:var(--hud-gutter, 14px);
+  width:var(--hud-side, min(380px, 22vw));min-width:260px;
+}
+
 /* —— Lobby chat (Richup-style) —— */
 .lobby-chat{
-  flex:1;min-height:220px;display:flex;flex-direction:column;overflow:hidden;
+  flex:1;min-height:180px;display:flex;flex-direction:column;overflow:hidden;
   border-radius:20px;
   background:
     linear-gradient(168deg,rgba(42,35,64,.94) 0%,rgba(28,24,46,.97) 55%,rgba(22,18,38,.98) 100%);
@@ -3987,7 +4007,14 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   .create-adv-card{position:static}
   .room-lobby{grid-template-columns:1fr;grid-template-rows:auto 1fr auto;padding:12px;overflow-y:auto;gap:14px}
   .room-lobby__side--left{order:1}
-  .lobby-chat{min-height:200px;max-height:min(42vh,320px)}
+  .room-chat-dock--lobby{
+    top:auto;left:12px;right:12px;width:auto;min-width:0;
+    bottom:72px;max-height:min(38vh,300px);
+  }
+  .room-chat-dock--game{
+    bottom:calc(var(--hud-gutter, 14px) + min(44vh,380px) + 10px);
+    width:var(--hud-side, min(340px, 92vw));min-width:240px;
+  }
   .room-lobby__center{order:2;min-height:220px}
   .room-lobby__side--right{order:3;max-height:none}
   .room-modal{width:100%;padding:22px 18px}

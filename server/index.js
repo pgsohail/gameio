@@ -485,7 +485,7 @@ function broadcastRoom(roomId) {
   }
 }
 
-const LOBBY_CHAT_MAX = 80;
+const LOBBY_CHAT_MAX = 120;
 const LOBBY_CHAT_COOLDOWN_MS = 700;
 const lobbyChatCooldown = new Map();
 
@@ -495,8 +495,41 @@ function sanitizeLobbyChatText(text) {
 }
 
 function isLobbyChatter(room, userId) {
-  return room?.status === 'lobby'
-    && room.slots?.some(s => s?.userId === userId && !s.bot);
+  return isRoomChatter(room, userId);
+}
+
+function isRoomChatter(room, userId) {
+  if (!room || !userId) return false;
+  if (room.status === 'lobby') {
+    return room.slots?.some(s => s?.userId === userId && !s.bot);
+  }
+  if (room.status === 'playing') {
+    const p = room.players?.find(x => x.userId === userId);
+    if (!p || p.bot) return false;
+    const gp = room.gameState?.players?.find(x => x.userId === userId);
+    if (gp?.dead) return false;
+    return true;
+  }
+  return false;
+}
+
+function chatterProfile(room, userId, ws) {
+  if (room.status === 'lobby') {
+    const slot = room.slots?.find(s => s?.userId === userId);
+    if (!slot) return null;
+    return {
+      name: slot.name || ws?.user?.name || 'Player',
+      emoji: slot.emoji || '🚂',
+      color: slot.color || '#3D5AFE',
+    };
+  }
+  const p = room.players?.find(x => x.userId === userId);
+  if (!p) return null;
+  return {
+    name: p.name || ws?.user?.name || 'Player',
+    emoji: p.emoji || '🚂',
+    color: p.color || '#3D5AFE',
+  };
 }
 
 function pushLobbyChat(room, entry) {
@@ -528,7 +561,7 @@ function sendLobbyChatHistory(ws, room) {
 function handleLobbyChatMessage(ws, msg) {
   const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
   const room = rooms.get(rid);
-  if (!room || room.status !== 'lobby' || !isLobbyChatter(room, ws.userId)) return;
+  if (!room || !isRoomChatter(room, ws.userId)) return;
 
   const now = Date.now();
   const last = lobbyChatCooldown.get(ws.userId) || 0;
@@ -537,16 +570,16 @@ function handleLobbyChatMessage(ws, msg) {
   const text = sanitizeLobbyChatText(msg.text);
   if (!text) return;
 
-  const slot = room.slots.find(s => s?.userId === ws.userId);
-  if (!slot) return;
+  const profile = chatterProfile(room, ws.userId, ws);
+  if (!profile) return;
 
   lobbyChatCooldown.set(ws.userId, now);
   const entry = {
     id: `${now}-${String(ws.userId).slice(0, 8)}`,
     userId: ws.userId,
-    name: slot.name || ws.user?.name || 'Player',
-    emoji: slot.emoji || '🚂',
-    color: slot.color || '#3D5AFE',
+    name: profile.name,
+    emoji: profile.emoji,
+    color: profile.color,
     text,
     at: now,
   };
@@ -987,7 +1020,6 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
 
   room.status = 'playing';
   room.updatedAt = Date.now();
-  room.lobbyChat = [];
 
   room.players = players;
   room.adminId = finalAdminId;
@@ -1064,7 +1096,7 @@ wss.on('connection', (ws, req) => {
       if (room) {
         clearAbsent(room, ws.userId);
         ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room, ws.userId) }));
-        if (room.status === 'lobby') sendLobbyChatHistory(ws, room);
+        sendLobbyChatHistory(ws, room);
         if (room.status === 'playing' && room.players) {
           ws.send(JSON.stringify({
             type: 'game_start',
