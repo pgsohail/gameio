@@ -616,6 +616,10 @@ app.get('/api/store', (_req, res) => {
   });
 });
 
+app.get('/api/live', (_req, res) => {
+  res.json(liveActivityStats());
+});
+
 app.get('/api/rooms', (_req, res) => {
   maintainBotHostedRoom(rooms, humanCount, hoidCtx());
   const live = liveActivityStats();

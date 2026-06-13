@@ -131,6 +131,7 @@ function showView(name) {
   const inLobby = ['home', 'create', 'profile', 'store'].includes(name);
   $('hubTop')?.classList.toggle('hidden', !inLobby);
   if (inLobby) sessionStorage.setItem(LOBBY_VIEW_KEY, name);
+  if (inLobby && !$('lobby')?.classList.contains('hidden')) refreshLiveStats();
   if (name === 'profile') renderProfilePage();
 }
 
@@ -160,6 +161,8 @@ function joinBlockedMessage(err) {
 
 let cachedFakePlaying = 0;
 let fakePlayingUpdated = 0;
+let liveStatsTimer = null;
+const LIVE_STATS_POLL_MS = 2000;
 
 function rollFakePlayingCount() {
   if (Math.random() < 0.32) return 100 + Math.floor(Math.random() * 96);
@@ -189,7 +192,10 @@ function updateLiveActivityUI(live = {}) {
 
   ['lobbyLiveStat1', 'lobbyLiveStat2', 'lobbyLiveStat3', 'lobbyLiveStat4'].forEach(id => {
     const el = $(id);
-    if (el) el.textContent = pair;
+    if (el) {
+      el.textContent = pair;
+      el.classList.toggle('lobby-live-stat--active', humans > 0 || rooms > 0);
+    }
   });
 
   const playingEl = $('homePlayingCount');
@@ -207,6 +213,33 @@ function updateLiveActivityUI(live = {}) {
       ).join('');
     }
   }
+}
+
+function shouldPollLiveStats() {
+  if (document.hidden) return false;
+  const lobby = $('lobby');
+  if (!lobby || lobby.classList.contains('hidden')) return false;
+  if (!$('roomLobby')?.classList.contains('hidden')) return false;
+  return true;
+}
+
+async function refreshLiveStats() {
+  if (!shouldPollLiveStats()) return;
+  try {
+    const live = await roomsApi.live();
+    updateLiveActivityUI(live);
+  } catch { /* keep last values */ }
+}
+
+function startLiveStatsPoll() {
+  if (liveStatsTimer) clearInterval(liveStatsTimer);
+  refreshLiveStats();
+  liveStatsTimer = setInterval(refreshLiveStats, LIVE_STATS_POLL_MS);
+}
+
+function stopLiveStatsPoll() {
+  if (liveStatsTimer) clearInterval(liveStatsTimer);
+  liveStatsTimer = null;
 }
 
 async function renderRoomList() {
@@ -362,12 +395,12 @@ function startFromPayload(payload) {
   const u = getUser();
   if (!u || !onStartGame) return;
   stopLobbyPoll();
+  stopLiveStatsPoll();
   const adminId = payload.adminId ?? 0;
   const humanCount = payload.players.filter(p => !p.bot).length;
   const isMp = humanCount > 1;
   gameStarted = true;
   gameMultiplayer = isMp;
-  renderRoomList();
   const players = payload.players.map((p, i) => ({
     userId: p.userId,
     name: p.userId === u.id ? u.name : p.name,
@@ -451,9 +484,12 @@ function exitBoardLobby() {
   url.searchParams.delete('room');
   history.replaceState(null, '', url.pathname + url.search);
   sessionStorage.removeItem(ROOM_SESSION_KEY);
+  startLiveStatsPoll();
+  renderRoomList();
 }
 
 function enterBoardLobby(room) {
+  stopLiveStatsPoll();
   currentRoomId = room.id;
   prevSlotSnapshot = null;
   sessionStorage.removeItem(LOBBY_VIEW_KEY);
@@ -1506,9 +1542,13 @@ export async function initLobby(startGame, boardStats, previewBoard) {
 
   cachedFakePlaying = rollFakePlayingCount();
   fakePlayingUpdated = Date.now();
-  updateLiveActivityUI({ humansPlaying: 0, activeRooms: 0, publicPlaying: 0 });
+  startLiveStatsPoll();
 
   renderRoomList();
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshLiveStats();
+  });
 
   setInterval(() => {
     if (!$('lobbyHome')?.classList.contains('hidden')) renderRoomList();

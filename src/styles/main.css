@@ -3098,6 +3098,7 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 .lobby-live-stat--2{right:14%;top:26%;animation-delay:-5s}
 .lobby-live-stat--3{left:22%;bottom:22%;animation-delay:-9s}
 .lobby-live-stat--4{right:20%;bottom:26%;animation-delay:-13s}
+.lobby-live-stat--active{color:rgba(255,72,72,.78);opacity:.72}
 @keyframes lobby-live-drift{
   0%,100%{opacity:.28;transform:translate(0,0) rotate(-4deg)}
   50%{opacity:.62;transform:translate(6px,-10px) rotate(3deg)}
