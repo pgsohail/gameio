@@ -12,7 +12,7 @@ import {
 } from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 import { boardName, boardTagline } from '../lib/boards.js';
-import { playPlayerJoin, playPlayerLeave, playBotJoin } from '../lib/sounds.js';
+import { playPlayerJoin, playPlayerLeave, playBotJoin, playChatPing } from '../lib/sounds.js';
 import { setGameBrandVisible } from '../lib/gameShell.js';
 
 const TOKEN_EMOJI = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
@@ -28,7 +28,7 @@ const RULE_ICONS = [
   { key: 'randomOrder', icon: '🔀', title: 'Random turn order' },
 ];
 
-let chosenPer = 7;
+let chosenPer = 10;
 let maxPlayers = 4;
 let hostEmoji = '🚂';
 let hostColor = BRIGHT_COLORS[4];
@@ -70,6 +70,10 @@ const SALARY_HINTS = {
   400: '$400 per GO. Healthier mid-game income.',
   500: '$500 per GO. Fast recovery after big spends.',
 };
+
+function formatRoomCode(id) {
+  return String(id || '').toUpperCase();
+}
 
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
@@ -155,6 +159,16 @@ function renderAuthBar() {
 let lobbyChatMessages = [];
 let lobbyChatMuted = false;
 let lobbyCanSendChat = false;
+let myChatProfile = { name: '', emoji: '🚂', color: '#3D5AFE' };
+
+function syncMyChatProfile(profile) {
+  if (!profile) return;
+  myChatProfile = {
+    name: profile.name || myChatProfile.name,
+    emoji: profile.emoji || myChatProfile.emoji,
+    color: profile.color || myChatProfile.color,
+  };
+}
 
 function clearLobbyChat() {
   lobbyChatMessages = [];
@@ -168,11 +182,21 @@ function setLobbyChatHistory(messages) {
   renderLobbyChatFeed();
 }
 
-function appendLobbyChatMessage(msg) {
-  if (!msg?.id || lobbyChatMessages.some(m => m.id === msg.id)) return;
+function appendLobbyChatMessage(msg, { silent = false } = {}) {
+  if (!msg?.text) return;
+  const u = getUser();
+  const optIdx = lobbyChatMessages.findIndex(m =>
+    m.pending && m.userId === msg.userId && m.text === msg.text);
+  if (optIdx >= 0) {
+    lobbyChatMessages[optIdx] = { ...msg, pending: false };
+    renderLobbyChatFeed(true);
+    return;
+  }
+  if (msg.id && lobbyChatMessages.some(m => m.id === msg.id)) return;
   lobbyChatMessages.push(msg);
-  if (lobbyChatMessages.length > 80) lobbyChatMessages = lobbyChatMessages.slice(-80);
+  if (lobbyChatMessages.length > 100) lobbyChatMessages = lobbyChatMessages.slice(-100);
   renderLobbyChatFeed(true);
+  if (!silent && !lobbyChatMuted && u && msg.userId !== u.id) playChatPing();
 }
 
 function syncLobbyChatCompose(canSend) {
@@ -223,7 +247,7 @@ function renderLobbyChatFeed(scrollToEnd = false) {
         ${mine ? '' : `<span class="lobby-chat__av" style="--lc:${esc(m.color || '#888')}">${esc(m.emoji || '🚂')}</span>`}
         <div class="lobby-chat__bubble-wrap">
           ${showName ? `<span class="lobby-chat__name">${esc(m.name || 'Player')}</span>` : ''}
-          <div class="lobby-chat__bubble">${esc(m.text)}</div>
+          <div class="lobby-chat__bubble${m.pending ? ' lobby-chat__bubble--pending' : ''}">${esc(m.text)}</div>
         </div>
       </div>`;
   }
@@ -236,11 +260,29 @@ function renderLobbyChatFeed(scrollToEnd = false) {
 function sendLobbyChatMessage(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !lobbyCanSendChat || !currentRoomId || !roomSocket) return false;
-  return sendRoomSocket(roomSocket, {
+  const u = getUser();
+  if (!u) return false;
+  const optimistic = {
+    id: `opt-${Date.now()}`,
+    userId: u.id,
+    name: myChatProfile.name || u.name,
+    emoji: myChatProfile.emoji,
+    color: myChatProfile.color,
+    text: trimmed.slice(0, 280),
+    at: Date.now(),
+    pending: true,
+  };
+  appendLobbyChatMessage(optimistic, { silent: true });
+  const ok = sendRoomSocket(roomSocket, {
     type: 'lobby_chat',
     roomId: currentRoomId,
-    text: trimmed.slice(0, 280),
+    text: optimistic.text,
   });
+  if (!ok) {
+    lobbyChatMessages = lobbyChatMessages.filter(m => m.id !== optimistic.id);
+    renderLobbyChatFeed();
+  }
+  return ok;
 }
 
 function handleLobbyChatSubmit(e) {
@@ -389,7 +431,7 @@ async function renderRoomList() {
       return `
       <button type="button" class="room-card room-card--public${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
         <div class="room-card__left">
-          <span class="room-card__id">${esc(r.id)}</span>
+          <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
           <span class="room-card__meta">${botHost ? '🧠 Bot host · tap to join' : `${humans} playing · ${open} seat${open === 1 ? '' : 's'} open`}</span>
           <div class="room-card__slots">${slotAvatars(r.slots, total)}</div>
         </div>
@@ -430,7 +472,7 @@ function gatherRules() {
 
 function gatherBoardRules() {
   const rules = {
-    per: +(document.querySelector('.board-sz.on')?.dataset.per || lastRoomRules?.per || 7),
+    per: +(document.querySelector('.board-sz.on')?.dataset.per || lastRoomRules?.per || 10),
     cash: +(document.querySelector('.board-cash.on')?.dataset.val || 2000),
     salary: +(document.querySelector('.board-sal.on')?.dataset.val || 300),
     diff: lastRoomRules?.diff || 'classic',
@@ -548,6 +590,8 @@ function startFromPayload(payload) {
   }));
   const rid = String(payload.roomId || currentRoomId || '').toLowerCase();
   if (rid) currentRoomId = rid;
+  const me = players.find(p => p.userId === u.id);
+  if (me) syncMyChatProfile(me);
   if (isMp) {
     showRoomChat('game');
     refreshRoomChatAccess({ inRoom: true });
@@ -782,6 +826,10 @@ function renderBoardLobby(room) {
   }
 
   lobbyWasSeated = inRoom;
+  if (inRoom && u) {
+    const slot = room.slots.find(s => s?.userId === u.id);
+    if (slot) syncMyChatProfile(slot);
+  }
 
   const isHost = u && room.hostId === u.id;
   const full = room.slots.every(Boolean);
@@ -796,7 +844,7 @@ function renderBoardLobby(room) {
 
   playLobbySlotSounds(room);
 
-  $('boardRoomCode').textContent = room.id;
+  $('boardRoomCode').textContent = formatRoomCode(room.id);
   $('boardWaitCount').textContent = `${humans} human${humans === 1 ? '' : 's'} · ${total}/${room.maxPlayers}`;
   $('boardWaitingSlots').innerHTML = slotAvatars(room.slots, room.maxPlayers);
   $('boardPlayerList').innerHTML = room.slots.map((p, i) => {
@@ -1390,7 +1438,7 @@ function showRejoinCard(room) {
   card?.classList.add('room-invite-card--rejoin');
   $('roomInviteEyebrow').textContent = 'Your game is waiting';
   const idEl = $('roomInviteId');
-  if (idEl) idEl.textContent = room.id;
+  if (idEl) idEl.textContent = formatRoomCode(room.id);
   $('roomInviteSub').textContent = 'Get back in before time runs out or you\'ll be removed from the match.';
   $('roomInviteTimer')?.classList.remove('hidden');
   const label = $('roomInviteEnter')?.querySelector('.home-play__label');
@@ -1523,7 +1571,7 @@ function showInviteCard(id, message, { rejoin = false, disableEnter = false } = 
   $('roomInviteEyebrow').textContent = rejoin ? 'Your game is waiting' : 'Game invite';
   $('roomInviteTimer')?.classList.toggle('hidden', !rejoin);
   const idEl = $('roomInviteId');
-  if (idEl) idEl.textContent = id;
+  if (idEl) idEl.textContent = formatRoomCode(id);
   const sub = $('roomInviteSub');
   if (sub) sub.textContent = message;
   const enterBtn = $('roomInviteEnter');
@@ -1630,7 +1678,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   bindChipGroup('.szchip', ch => {
     if (ch.dataset.per === 'custom') {
       $('customSize')?.classList.remove('hidden');
-      chosenPer = +$('szRange')?.value || 7;
+      chosenPer = +$('szRange')?.value || 10;
     } else {
       $('customSize')?.classList.add('hidden');
       chosenPer = +ch.dataset.per;

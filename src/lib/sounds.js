@@ -73,6 +73,11 @@ export function playGameOverWin() {
   tone(1047, { duration: 0.4, gain: 0.09, delay: 0.45 });
 }
 
+export function playChatPing() {
+  tone(920, { duration: 0.07, gain: 0.045 });
+  tone(1180, { duration: 0.09, gain: 0.035, delay: 0.04 });
+}
+
 /** Simple two-tap dice roll — light and clean. */
 export function playDiceRoll() {
   tone(520, { duration: 0.05, type: 'triangle', gain: 0.045 });

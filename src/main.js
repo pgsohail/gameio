@@ -7,6 +7,6 @@ import { initLobby, playAgainAfterGame } from './ui/lobby.js';
 registerPlayAgainHandler(playAgainAfterGame);
 initLobby(startGameFromLobby, boardStats, previewBoard);
 
-const BUILD = '2026-06-13-mp48';
+const BUILD = '2026-06-13-mp49';
 const tag = document.getElementById('appBuildTag');
 if (tag) tag.textContent = `Build ${BUILD}`;

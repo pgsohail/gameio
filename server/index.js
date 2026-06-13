@@ -120,7 +120,11 @@ function upsertProfile(user) {
 }
 
 function secureRoomId() {
-  return randomBytes(8).toString('base64url').slice(0, 10).toLowerCase();
+  for (let i = 0; i < 16; i++) {
+    const id = randomBytes(4).toString('base64url').slice(0, 6).toLowerCase();
+    if (!rooms.has(id)) return id;
+  }
+  return randomBytes(6).toString('hex').slice(0, 8);
 }
 
 function pruneRooms() {
@@ -505,7 +509,7 @@ function broadcastRoom(roomId) {
 }
 
 const LOBBY_CHAT_MAX = 120;
-const LOBBY_CHAT_COOLDOWN_MS = 700;
+const LOBBY_CHAT_COOLDOWN_MS = 350;
 const lobbyChatCooldown = new Map();
 
 function sanitizeLobbyChatText(text) {
@@ -523,8 +527,9 @@ function isRoomChatter(room, userId) {
     return room.slots?.some(s => s?.userId === userId && !s.bot);
   }
   if (room.status === 'playing') {
+    const slot = room.slots?.find(s => s?.userId === userId && !s.bot);
     const p = room.players?.find(x => x.userId === userId);
-    if (!p || p.bot) return false;
+    if (!slot && (!p || p.bot)) return false;
     const gp = room.gameState?.players?.find(x => x.userId === userId);
     if (gp?.dead) return false;
     return true;
@@ -542,7 +547,8 @@ function chatterProfile(room, userId, ws) {
       color: slot.color || '#3D5AFE',
     };
   }
-  const p = room.players?.find(x => x.userId === userId);
+  const p = room.players?.find(x => x.userId === userId)
+    || room.slots?.find(s => s?.userId === userId);
   if (!p) return null;
   return {
     name: p.name || ws?.user?.name || 'Player',
