@@ -28,7 +28,7 @@ const RULE_ICONS = [
   { key: 'randomOrder', icon: '🔀', title: 'Random turn order' },
 ];
 
-let chosenPer = 12;
+let chosenPer = 7;
 let maxPlayers = 4;
 let hostEmoji = '🚂';
 let hostColor = BRIGHT_COLORS[4];
@@ -430,7 +430,7 @@ function gatherRules() {
 
 function gatherBoardRules() {
   const rules = {
-    per: +(document.querySelector('.board-sz.on')?.dataset.per || lastRoomRules?.per || 12),
+    per: +(document.querySelector('.board-sz.on')?.dataset.per || lastRoomRules?.per || 7),
     cash: +(document.querySelector('.board-cash.on')?.dataset.val || 2000),
     salary: +(document.querySelector('.board-sal.on')?.dataset.val || 300),
     diff: lastRoomRules?.diff || 'classic',
@@ -1630,7 +1630,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   bindChipGroup('.szchip', ch => {
     if (ch.dataset.per === 'custom') {
       $('customSize')?.classList.remove('hidden');
-      chosenPer = +$('szRange')?.value || 12;
+      chosenPer = +$('szRange')?.value || 7;
     } else {
       $('customSize')?.classList.add('hidden');
       chosenPer = +ch.dataset.per;

@@ -203,7 +203,7 @@ export function createBotHostedPublicRoom(deps) {
     rules: {
       title: 'Buildup.io',
       allowBots: false,
-      per: 12,
+      per: 7,
       cash: 2000,
       salary: 300,
       diff: 'classic',

@@ -170,16 +170,17 @@
             <div class="setup-row">
               <span class="setup-row__label">Board</span>
               <div id="sizeChips" class="glass-seg glass-seg--dark">
+                <button class="szchip glass-seg__btn on" data-per="7" type="button">Sunset Loop</button>
                 <button class="szchip glass-seg__btn" data-per="10" type="button">Death Valley</button>
-                <button class="szchip glass-seg__btn on" data-per="12" type="button">Neon Harbor</button>
+                <button class="szchip glass-seg__btn" data-per="12" type="button">Neon Harbor</button>
                 <button class="szchip glass-seg__btn" data-per="14" type="button">Crystal Peaks</button>
                 <button class="szchip glass-seg__btn" data-per="18" type="button">Eclipse Bay</button>
                 <button class="szchip glass-seg__btn" data-per="custom" type="button">···</button>
               </div>
             </div>
             <div id="customSize" class="setup-custom hidden">
-              <input type="range" id="szRange" min="10" max="18" step="1" value="12" aria-label="Tiles per side">
-              <b id="szLabel">Neon Harbor</b>
+              <input type="range" id="szRange" min="7" max="18" step="1" value="7" aria-label="Tiles per side">
+              <b id="szLabel">Sunset Loop</b>
             </div>
             <div id="sizeInfo" class="setup-hint"></div>
             <div class="setup-row">
@@ -402,8 +403,9 @@
         <div class="adv-block">
           <span class="adv-block__label">Board map</span>
           <div class="glass-seg glass-seg--dark glass-seg--boards">
+            <button class="board-sz glass-seg__btn on" data-per="7" type="button">Sunset Loop</button>
             <button class="board-sz glass-seg__btn" data-per="10" type="button">Death Valley</button>
-            <button class="board-sz glass-seg__btn on" data-per="12" type="button">Neon Harbor</button>
+            <button class="board-sz glass-seg__btn" data-per="12" type="button">Neon Harbor</button>
             <button class="board-sz glass-seg__btn" data-per="14" type="button">Crystal Peaks</button>
             <button class="board-sz glass-seg__btn" data-per="18" type="button">Eclipse Bay</button>
           </div>

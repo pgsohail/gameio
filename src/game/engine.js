@@ -63,9 +63,9 @@ function genBoard(per){
   slots[3*per]={type:'gotojail',name:'Go to Prison',flag:'☠️'};
   const placeNear=(i,t)=>{i=((i%n)+n)%n;
     for(let d=0;d<n;d++)for(const j of [i+d,i-d]){const k=((j%n)+n)%n;if(slots[k]==null){slots[k]=t;return k;}}};
-  const nAir=per<=10?4:per<=13?6:8;
-  const nUtl=per<=10?2:per<=13?3:4;
-  const nSur=Math.max(3,Math.round(n/13));
+  const nAir=per<=7?2:per<=10?4:per<=13?6:8;
+  const nUtl=per<=7?1:per<=10?2:per<=13?3:4;
+  const nSur=Math.max(per<=7?2:3,Math.round(n/13));
   const nTre=nSur;
   for(let k=0;k<nAir;k++)placeNear(Math.round(n*(k+0.5)/nAir),{type:'air',name:AIRPORTS[k%AIRPORTS.length],group:'air',price:200,flag:'✈️',airVariant:k%AIRPORTS.length});
   for(let k=0;k<nUtl;k++){const u=UTILITIES[k%UTILITIES.length];placeNear(Math.round(n*(k+0.62)/nUtl),{type:'utl',name:u.name,flag:u.flag,utlKey:u.key,group:'utl',price:150});}
@@ -2858,7 +2858,7 @@ function runPropPreview(){
   if(!mode||!['prop','build','mortgage','all','board'].includes(mode))return;
   const openModal=params.get('open')!=='0';
 
-  const per=+(params.get('per')||12);
+  const per=+(params.get('per')||7);
   S.rules={
     per,title:'Buildup.io',diff:DIFF.classic,
     cash:2000,salary:300,double:true,vacation:true,auction:true,trades:true,
