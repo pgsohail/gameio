@@ -32,6 +32,12 @@
     <div class="lobby-shine"></div>
     <div class="lobby-glow"></div>
     <div class="lobby-grid"></div>
+    <div class="lobby-live-stats" aria-hidden="true">
+      <span class="lobby-live-stat lobby-live-stat--1" id="lobbyLiveStat1">0/0</span>
+      <span class="lobby-live-stat lobby-live-stat--2" id="lobbyLiveStat2">0/0</span>
+      <span class="lobby-live-stat lobby-live-stat--3" id="lobbyLiveStat3">0/0</span>
+      <span class="lobby-live-stat lobby-live-stat--4" id="lobbyLiveStat4">0/0</span>
+    </div>
     <div class="lobby-float lobby-float--1">🏠</div>
     <div class="lobby-float lobby-float--2">💰</div>
     <div class="lobby-float lobby-float--3">🎩</div>
@@ -144,7 +150,7 @@
 
       <div id="publicRoomsSection" class="home-rooms hidden">
         <div class="home-rooms__head">
-          <span class="home-rooms__title"><strong id="homePlayingCount">0</strong> playing · Active public rooms</span>
+          <span class="home-rooms__title"><strong id="homePlayingCount">0</strong> playing · Active public rooms<span class="home-rooms__live-dots" id="homeLiveDots" aria-hidden="true"></span></span>
           <button type="button" class="home-rooms__refresh" id="roomRefresh" title="Refresh">↻</button>
         </div>
         <div class="room-list" id="roomList"></div>

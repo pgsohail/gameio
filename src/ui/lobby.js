@@ -158,17 +158,68 @@ function joinBlockedMessage(err) {
   return null;
 }
 
+let cachedFakePlaying = 0;
+let fakePlayingUpdated = 0;
+
+function rollFakePlayingCount() {
+  if (Math.random() < 0.32) return 100 + Math.floor(Math.random() * 96);
+  return 50 + Math.floor(Math.random() * 50);
+}
+
+function fakePlayingDisplayCount() {
+  const now = Date.now();
+  if (!cachedFakePlaying || now - fakePlayingUpdated > 42000 + Math.random() * 36000) {
+    cachedFakePlaying = rollFakePlayingCount();
+    fakePlayingUpdated = now;
+  }
+  return cachedFakePlaying;
+}
+
+function formatLivePair(humans, rooms) {
+  const h = Math.max(0, humans | 0);
+  const r = Math.max(0, rooms | 0);
+  return `${String(h).padStart(2, '0')}/${String(r).padStart(2, '0')}`;
+}
+
+function updateLiveActivityUI(live = {}) {
+  const humans = live.humansPlaying ?? 0;
+  const rooms = live.activeRooms ?? 0;
+  const publicPlaying = live.publicPlaying ?? 0;
+  const pair = formatLivePair(humans, rooms);
+
+  ['lobbyLiveStat1', 'lobbyLiveStat2', 'lobbyLiveStat3', 'lobbyLiveStat4'].forEach(id => {
+    const el = $(id);
+    if (el) el.textContent = pair;
+  });
+
+  const playingEl = $('homePlayingCount');
+  if (playingEl) playingEl.textContent = String(fakePlayingDisplayCount());
+
+  const dots = $('homeLiveDots');
+  if (dots) {
+    if (publicPlaying <= 0) {
+      dots.innerHTML = '';
+      dots.classList.add('hidden');
+    } else {
+      dots.classList.remove('hidden');
+      dots.innerHTML = Array.from({ length: publicPlaying }, (_, i) =>
+        `<span class="home-rooms__live-dot" style="animation-delay:${(i * 0.22).toFixed(2)}s"></span>`,
+      ).join('');
+    }
+  }
+}
+
 async function renderRoomList() {
   const section = $('publicRoomsSection');
   const list = $('roomList');
   const empty = $('homeRoomsEmpty');
   if (!section || !list) return;
   try {
-    const { rooms, playingCount = 0 } = await roomsApi.list();
-    const playingEl = $('homePlayingCount');
-    if (playingEl) playingEl.textContent = String(playingCount);
+    const { rooms, playingCount = 0, live = {} } = await roomsApi.list();
+    updateLiveActivityUI(live);
     const openRooms = (rooms || []).filter(r => r.status === 'lobby');
-    const show = roomsPanelOpen || openRooms.length > 0 || playingCount > 0;
+    const realPublicPlaying = live.publicPlaying ?? playingCount ?? 0;
+    const show = roomsPanelOpen || openRooms.length > 0 || realPublicPlaying > 0;
     section.classList.toggle('hidden', !show);
     empty?.classList.toggle('hidden', !show || openRooms.length > 0);
     if (!openRooms.length) {
@@ -1452,6 +1503,10 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   window.addEventListener('pagehide', () => {
     if (gameStarted && currentRoomId) markAbsentKeepalive(currentRoomId);
   });
+
+  cachedFakePlaying = rollFakePlayingCount();
+  fakePlayingUpdated = Date.now();
+  updateLiveActivityUI({ humansPlaying: 0, activeRooms: 0, publicPlaying: 0 });
 
   renderRoomList();
 
