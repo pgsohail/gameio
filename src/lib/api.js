@@ -81,6 +81,12 @@ export function connectRoomSocket(onMessage) {
   return ws;
 }
 
+export function sendRoomSocket(ws, data) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify(data));
+  return true;
+}
+
 export function subscribeWhenOpen(ws, data) {
   if (!ws) return;
   const send = () => {

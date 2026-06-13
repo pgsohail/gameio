@@ -254,6 +254,7 @@ function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
     updatedAt: Date.now(),
     humanoidBudget: pickHumanoidBudget(),
     humanoidQueue: [],
+    lobbyChat: [],
   };
   room.slots[0] = {
     userId: user.id,
@@ -484,6 +485,75 @@ function broadcastRoom(roomId) {
   }
 }
 
+const LOBBY_CHAT_MAX = 80;
+const LOBBY_CHAT_COOLDOWN_MS = 700;
+const lobbyChatCooldown = new Map();
+
+function sanitizeLobbyChatText(text) {
+  if (typeof text !== 'string') return '';
+  return text.trim().slice(0, 280).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F<>]/g, '');
+}
+
+function isLobbyChatter(room, userId) {
+  return room?.status === 'lobby'
+    && room.slots?.some(s => s?.userId === userId && !s.bot);
+}
+
+function pushLobbyChat(room, entry) {
+  room.lobbyChat = room.lobbyChat || [];
+  room.lobbyChat.push(entry);
+  if (room.lobbyChat.length > LOBBY_CHAT_MAX) {
+    room.lobbyChat = room.lobbyChat.slice(-LOBBY_CHAT_MAX);
+  }
+}
+
+function broadcastLobbyChat(roomId, payload) {
+  const subs = roomSubs.get(roomId);
+  if (!subs) return;
+  const data = JSON.stringify(payload);
+  for (const ws of subs) {
+    if (ws.readyState === 1) ws.send(data);
+  }
+}
+
+function sendLobbyChatHistory(ws, room) {
+  if (!room?.lobbyChat?.length) return;
+  ws.send(JSON.stringify({
+    type: 'lobby_chat_history',
+    roomId: room.id,
+    messages: room.lobbyChat,
+  }));
+}
+
+function handleLobbyChatMessage(ws, msg) {
+  const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
+  const room = rooms.get(rid);
+  if (!room || room.status !== 'lobby' || !isLobbyChatter(room, ws.userId)) return;
+
+  const now = Date.now();
+  const last = lobbyChatCooldown.get(ws.userId) || 0;
+  if (now - last < LOBBY_CHAT_COOLDOWN_MS) return;
+
+  const text = sanitizeLobbyChatText(msg.text);
+  if (!text) return;
+
+  const slot = room.slots.find(s => s?.userId === ws.userId);
+  if (!slot) return;
+
+  lobbyChatCooldown.set(ws.userId, now);
+  const entry = {
+    id: `${now}-${String(ws.userId).slice(0, 8)}`,
+    userId: ws.userId,
+    name: slot.name || ws.user?.name || 'Player',
+    emoji: slot.emoji || '🚂',
+    color: slot.color || '#3D5AFE',
+    text,
+    at: now,
+  };
+  pushLobbyChat(room, entry);
+  broadcastLobbyChat(rid, { type: 'lobby_chat', roomId: rid, message: entry });
+}
+
 function broadcastDiceRoll(roomId, msg) {
   const subs = roomSubs.get(roomId);
   if (!subs) return;
@@ -669,6 +739,7 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
     updatedAt: Date.now(),
     humanoidBudget: HUMANOID_CAP,
     humanoidQueue: [],
+    lobbyChat: [],
   };
   room.slots[0] = {
     userId: req.user.id,
@@ -916,6 +987,7 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
 
   room.status = 'playing';
   room.updatedAt = Date.now();
+  room.lobbyChat = [];
 
   room.players = players;
   room.adminId = finalAdminId;
@@ -992,6 +1064,7 @@ wss.on('connection', (ws, req) => {
       if (room) {
         clearAbsent(room, ws.userId);
         ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room, ws.userId) }));
+        if (room.status === 'lobby') sendLobbyChatHistory(ws, room);
         if (room.status === 'playing' && room.players) {
           ws.send(JSON.stringify({
             type: 'game_start',
@@ -1011,6 +1084,10 @@ wss.on('connection', (ws, req) => {
           }
         }
       }
+    }
+    if (msg.type === 'lobby_chat' && msg.roomId) {
+      handleLobbyChatMessage(ws, msg);
+      return;
     }
     if (msg.type === 'dice_roll' && msg.roomId) {
       const rid = String(msg.roomId).trim().toLowerCase();

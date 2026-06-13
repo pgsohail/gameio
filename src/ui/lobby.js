@@ -5,7 +5,7 @@ import {
   onAuthChange, restoreSession, setRemember, signOut,
 } from '../lib/auth.js';
 import {
-  connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, subscribeWhenOpen,
+  connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, sendRoomSocket, subscribeWhenOpen,
 } from '../lib/api.js';
 import {
   enableMultiplayer, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
@@ -150,6 +150,91 @@ function renderAuthBar() {
   const nameEl = $('authUserName');
   if (nameEl) nameEl.textContent = u.name;
   renderHub();
+}
+
+let lobbyChatMessages = [];
+let lobbyChatMuted = false;
+let lobbyCanSendChat = false;
+
+function clearLobbyChat() {
+  lobbyChatMessages = [];
+  lobbyCanSendChat = false;
+  renderLobbyChatFeed();
+  syncLobbyChatCompose(false);
+}
+
+function setLobbyChatHistory(messages) {
+  lobbyChatMessages = Array.isArray(messages) ? [...messages] : [];
+  renderLobbyChatFeed();
+}
+
+function appendLobbyChatMessage(msg) {
+  if (!msg?.id || lobbyChatMessages.some(m => m.id === msg.id)) return;
+  lobbyChatMessages.push(msg);
+  if (lobbyChatMessages.length > 80) lobbyChatMessages = lobbyChatMessages.slice(-80);
+  renderLobbyChatFeed(true);
+}
+
+function syncLobbyChatCompose(canSend) {
+  lobbyCanSendChat = !!canSend;
+  const input = $('lobbyChatInput');
+  const send = $('lobbyChatForm')?.querySelector('.lobby-chat__send');
+  if (input) {
+    input.disabled = !canSend;
+    input.placeholder = canSend ? 'Say something…' : 'Join the game to chat…';
+  }
+  if (send) send.disabled = !canSend;
+}
+
+function renderLobbyChatFeed(scrollToEnd = false) {
+  const feed = $('lobbyChatFeed');
+  if (!feed) return;
+  const u = getUser();
+
+  if (!lobbyChatMessages.length) {
+    feed.innerHTML = '<p class="lobby-chat__empty">Say hi to everyone in the lobby…</p>';
+    return;
+  }
+
+  let html = '';
+  let prevUserId = null;
+  for (const m of lobbyChatMessages) {
+    const mine = u && m.userId === u.id;
+    const showName = !mine && m.userId !== prevUserId;
+    prevUserId = m.userId;
+    html += `
+      <div class="lobby-chat__row ${mine ? 'lobby-chat__row--mine' : 'lobby-chat__row--theirs'}">
+        ${mine ? '' : `<span class="lobby-chat__av" style="--lc:${esc(m.color || '#888')}">${esc(m.emoji || '🚂')}</span>`}
+        <div class="lobby-chat__bubble-wrap">
+          ${showName ? `<span class="lobby-chat__name">${esc(m.name || 'Player')}</span>` : ''}
+          <div class="lobby-chat__bubble">${esc(m.text)}</div>
+        </div>
+      </div>`;
+  }
+
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 48;
+  feed.innerHTML = html;
+  if (scrollToEnd || atBottom) feed.scrollTop = feed.scrollHeight;
+}
+
+function sendLobbyChatMessage(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || !lobbyCanSendChat || !currentRoomId || !roomSocket) return false;
+  return sendRoomSocket(roomSocket, {
+    type: 'lobby_chat',
+    roomId: currentRoomId,
+    text: trimmed.slice(0, 280),
+  });
+}
+
+function handleLobbyChatSubmit(e) {
+  e.preventDefault();
+  const input = $('lobbyChatInput');
+  if (!input || input.disabled) return;
+  const text = input.value;
+  if (!sendLobbyChatMessage(text)) return;
+  input.value = '';
+  input.focus();
 }
 
 function joinBlockedMessage(err) {
@@ -388,6 +473,13 @@ function onRoomSocketMessage(roomId, msg) {
   if (msg.type === 'game_start') {
     startFromPayload(msg);
   }
+  if (msg.type === 'lobby_chat_history' && msg.roomId === roomId) {
+    setLobbyChatHistory(msg.messages);
+    return;
+  }
+  if (msg.type === 'lobby_chat' && msg.roomId === roomId && msg.message) {
+    appendLobbyChatMessage(msg.message);
+  }
 }
 
 function startFromPayload(payload) {
@@ -484,12 +576,14 @@ function exitBoardLobby() {
   url.searchParams.delete('room');
   history.replaceState(null, '', url.pathname + url.search);
   sessionStorage.removeItem(ROOM_SESSION_KEY);
+  clearLobbyChat();
   startLiveStatsPoll();
   renderRoomList();
 }
 
 function enterBoardLobby(room) {
   stopLiveStatsPoll();
+  clearLobbyChat();
   currentRoomId = room.id;
   prevSlotSnapshot = null;
   sessionStorage.removeItem(LOBBY_VIEW_KEY);
@@ -706,6 +800,8 @@ function renderBoardLobby(room) {
     if (title) title.textContent = 'In the lobby';
     if (sub) sub.textContent = 'Waiting for the admin to launch';
   }
+
+  syncLobbyChatCompose(inRoom);
 }
 
 async function createLobbyRoom() {
@@ -1503,6 +1599,13 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     exitBoardLobby();
     showView('home');
     renderRoomList();
+  });
+  $('lobbyChatForm')?.addEventListener('submit', handleLobbyChatSubmit);
+  $('lobbyChatMute')?.addEventListener('click', () => {
+    lobbyChatMuted = !lobbyChatMuted;
+    const btn = $('lobbyChatMute');
+    btn?.classList.toggle('is-muted', lobbyChatMuted);
+    if (btn) btn.textContent = lobbyChatMuted ? '🔇' : '🔊';
   });
   document.addEventListener('wt:player-left-game', onPlayerLeftGame);
   $('roomRefresh')?.addEventListener('click', () => {
