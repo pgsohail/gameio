@@ -274,6 +274,7 @@ function importGameState(state) {
       jailTurns: sp.jailTurns,
       goojf: sp.goojf,
       dead: sp.dead,
+      isAdmin: !!sp.isAdmin,
       debt: sp.debt,
       powerCards: sp.powerCards || [],
       rentSurge: sp.rentSurge,
@@ -328,7 +329,85 @@ function importGameState(state) {
   }
   renderAll();
   checkVoteKick();
+  transferGameAdmin();
+  ensureTurnContinuity();
   postSyncTurn();
+}
+
+function transferGameAdmin() {
+  const living = S.players.filter(p => !p.dead);
+  if (!living.length) return null;
+  if (living.some(p => p.isAdmin)) return S.players.find(p => p.isAdmin && !p.dead) || null;
+  S.players.forEach(p => { p.isAdmin = false; });
+  const next = living.find(p => !p.bot && p.userId) || living.find(p => !p.bot) || living[0];
+  if (next) {
+    next.isAdmin = true;
+    if (!next.bot) log(`👑 <b>${next.name}</b> is now room admin.`, next);
+  }
+  return next;
+}
+
+function purgeTradesForPlayer(pid) {
+  for (const t of S.openTrades || []) {
+    if (t.status !== 'pending') continue;
+    if (t.fromId === pid || t.toId === pid) {
+      t.status = 'declined';
+      t.declinedAt = Date.now();
+      t.awaitingId = null;
+    }
+  }
+}
+
+function pruneAuctionForPlayer(pid) {
+  if (!A) return;
+  A.active = A.active.filter(id => {
+    const pl = S.players[id];
+    return pl && !pl.dead;
+  });
+  if (A.leader === pid || S.players[A.leader]?.dead) {
+    A.leader = A.active.includes(A.leader) ? A.leader : null;
+  }
+  if (A.idx >= A.active.length) A.idx = 0;
+  if (!A.active.length) {
+    const afterId = A.afterPlayerId;
+    const afterAgain = A.afterAgain;
+    $('aucModal')?.classList.add('hidden');
+    $('aucRestoreBar')?.classList.add('hidden');
+    A = null;
+    clearAucTimer();
+    log('🔨 Auction ended — no bidders left.');
+    const resume = afterId != null ? S.players.find(x => x.id === afterId) : null;
+    if (resume && !resume.dead) finishMovePhase(resume, afterAgain);
+  }
+}
+
+function cancelTurnBlockers(wasCurrent) {
+  if (!wasCurrent) return;
+  $('tradeModal')?.classList.add('hidden');
+  $('tradeReviewModal')?.classList.add('hidden');
+  closeTradeReview();
+  viewingTradeId = null;
+  $('propModal')?.classList.add('hidden');
+  $('bankruptConfirmModal')?.classList.add('hidden');
+  $('manageModal')?.classList.add('hidden');
+  S.voteKick = { voters: [] };
+}
+
+function advanceTurn() {
+  if (S.over) return;
+  S.phase = 'idle';
+  S.pendingDouble = false;
+  S.turn = (S.turn + 1) % S.players.length;
+  let guard = S.players.length;
+  while (S.cur?.dead && guard--) S.turn = (S.turn + 1) % S.players.length;
+  if (isMpGame()) broadcastStateNow();
+  setTimeout(startTurn, 200);
+}
+
+function ensureTurnContinuity() {
+  if (S.over || !S.cur?.dead) return;
+  if (isMpGame() && !localRunsBots()) return;
+  advanceTurn();
 }
 
 function onRemoteDiceRoll(msg) {
@@ -805,13 +884,12 @@ function handleTurnTimeout(){
     if(!S.voteKickedUsers)S.voteKickedUsers=[];
     if(!S.voteKickedUsers.includes(cur.userId))S.voteKickedUsers.push(cur.userId);
   }
-  bankrupt(cur,null);
-  S.voteKick={voters:[]};
-  if(isMpGame())broadcastStateNow();
-  if(!S.over)setTimeout(startTurn,500);
+  bankrupt(cur, null);
+  S.voteKick = { voters: [] };
+  if (isMpGame()) broadcastStateNow();
 }
 
-function checkVoteKick(){
+function checkVoteKick() {
   if(!S.voteKick?.voters?.length)return;
   const cur=S.cur;
   if(!cur||cur.dead||cur.bot)return;
@@ -825,10 +903,9 @@ function checkVoteKick(){
       if(!S.voteKickedUsers)S.voteKickedUsers=[];
       if(!S.voteKickedUsers.includes(cur.userId))S.voteKickedUsers.push(cur.userId);
     }
-    bankrupt(cur,null);
-    S.voteKick={voters:[]};
+    bankrupt(cur, null);
+    S.voteKick = { voters: [] };
     broadcastStateNow();
-    if(!S.over)setTimeout(startTurn,500);
   }
 }
 function castVoteKick(){
@@ -1416,9 +1493,7 @@ function forfeitLocalHuman(){
   const p=localHuman();
   if(!p||p.dead||S.over)return false;
   if(p.debt)delete p.debt;
-  const wasTurn=S.players[S.turn]===p;
   bankrupt(p,null);
-  if(wasTurn&&!S.over)endTurn();
   if(isMultiplayerActive())broadcastStateNow();
   return true;
 }
@@ -1452,14 +1527,25 @@ function liquidate(p,target){
   renderTiles();
 }
 function bankrupt(p,creditor){
-  if(p.dead)return;p.dead=true;
+  if(p.dead)return;
+  const wasCurrent=S.players[S.turn]===p;
+  p.dead=true;
   if(p.eliminatedAt==null)p.eliminatedAt=S.players.reduce((n,x)=>n+(x.turnsSurvived||0),0);
   log(`💥 <b>${p.name}</b> goes <b>bankrupt</b>${creditor?` — assets pass to <b>${creditor.name}</b>`:''}.`,p);
   ownedBy(p).forEach(t=>{t.houses=0;
     if(creditor&&!creditor.dead)t.owner=creditor.id;
     else{t.owner=null;t.mortgaged=false;}});
   if(creditor)creditor.cash+=Math.max(0,p.cash);
-  p.cash=0;renderAll();checkWin();
+  p.cash=0;
+  if(p.debt)delete p.debt;
+  transferGameAdmin();
+  pruneAuctionForPlayer(p.id);
+  purgeTradesForPlayer(p.id);
+  cancelTurnBlockers(wasCurrent);
+  renderAll();
+  if(checkWin())return;
+  if(wasCurrent&&!S.over)advanceTurn();
+  else if(isMultiplayerActive())broadcastStateNow();
 }
 function gameOverLeaderboard(winner){
   return [...S.players].sort((a,b)=>{
@@ -1542,10 +1628,12 @@ function startTurn(){
 }
 function endTurn(){
   if(S.over)return;
-  if(!mayControlTurn())return;
+  if(!mayControlTurn()&&!S.cur?.dead)return;
   markTurnEngagement();
   S.phase='idle';
   S.turn=(S.turn+1)%S.players.length;
+  let guard=S.players.length;
+  while(S.cur?.dead&&guard--)S.turn=(S.turn+1)%S.players.length;
   if(isMpGame())broadcastStateNow();
   setTimeout(startTurn,280);
 }
@@ -1674,7 +1762,7 @@ function buyCurrent(p){
 }
 function finishMovePhase(p,rollAgain){
   if(S.over)return;
-  if(p.dead){endTurn();return;}
+  if(p.dead){advanceTurn();return;}
   renderAll();if(checkWin())return;
   const runBots=localRunsBots();
   if(rollAgain&&!p.jail){

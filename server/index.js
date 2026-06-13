@@ -327,13 +327,32 @@ function clearAbsent(room, userId) {
   }
 }
 
+function syncRoomAdminFromState(room, state) {
+  if (!room || !state?.players?.length) return;
+  const idx = state.players.findIndex(p => p.isAdmin && !p.dead);
+  const pick = idx >= 0 ? idx : state.players.findIndex(p => !p.dead);
+  if (pick < 0) return;
+  room.adminId = pick;
+  const hp = state.players[pick];
+  if (hp?.userId && !hp.bot) room.hostId = hp.userId;
+}
+
 function kickPlayerFromGame(room, userId, reason) {
   room.kicked = room.kicked || {};
   room.kicked[userId] = { reason, at: Date.now() };
   if (room.absent?.[userId]) delete room.absent[userId];
   if (room.gameState?.players) {
     const gp = room.gameState.players.find(p => p.userId === userId);
-    if (gp) gp.dead = true;
+    if (gp) {
+      gp.dead = true;
+      if (gp.isAdmin) {
+        room.gameState.players.forEach(p => { p.isAdmin = false; });
+        const next = room.gameState.players.find(p => !p.dead && !p.bot)
+          || room.gameState.players.find(p => !p.dead);
+        if (next) next.isAdmin = true;
+      }
+    }
+    syncRoomAdminFromState(room, room.gameState);
   }
   room.updatedAt = Date.now();
   const payload = JSON.stringify({
@@ -615,6 +634,7 @@ function broadcastGameState(roomId, state, fromWs, fromUserId) {
     room.gameState = state;
     room.stateSeq = Date.now();
     room.updatedAt = Date.now();
+    syncRoomAdminFromState(room, state);
     if (Array.isArray(state.voteKickedUsers)) {
       room.kicked = room.kicked || {};
       for (const uid of state.voteKickedUsers) {
