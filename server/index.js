@@ -605,9 +605,11 @@ app.get('/api/rooms/:id', authMiddleware, (req, res) => {
   pruneRooms();
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
   if (!room) return res.status(404).json({ error: 'Room not found' });
-  // Invite link is the secret for private lobbies — allow fetch while still in lobby
-  if (room.private && room.status !== 'lobby' && !wasRoomMember(room, req.user.id)) {
-    return res.status(403).json({ error: 'Private room' });
+  if (room.status !== 'lobby' && !wasRoomMember(room, req.user.id)) {
+    return res.status(403).json({
+      error: room.private ? 'private' : 'started',
+      message: room.private ? 'Private room' : 'Game already started',
+    });
   }
   if (room.status === 'lobby') {
     const before = JSON.stringify(room.slots);
@@ -691,7 +693,10 @@ app.post('/api/rooms/quick-join', authMiddleware, (req, res) => {
 app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   pruneRooms();
   const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
-  if (!room || room.status !== 'lobby') return res.status(404).json({ error: 'Room not found' });
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.status !== 'lobby') {
+    return res.status(403).json({ error: 'started', message: 'Game already started' });
+  }
   if (room.kicked?.[req.user.id]) {
     return res.status(403).json({ error: 'removed', kicked: room.kicked[req.user.id] });
   }
@@ -902,6 +907,7 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
       ws.send(JSON.stringify({ ...payload, yourUserId: uid }));
     }
   }
+  broadcastRoom(room.id);
 
   res.json({ ...payload, yourUserId: req.user.id });
 });

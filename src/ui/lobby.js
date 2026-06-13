@@ -151,6 +151,13 @@ function renderAuthBar() {
   renderHub();
 }
 
+function joinBlockedMessage(err) {
+  if (err === 'started') return 'This game has already started. You can no longer join.';
+  if (err === 'removed') return 'The admin removed you from this room.';
+  if (err === 'private') return 'This is a private room — you need an invite link from the host.';
+  return null;
+}
+
 async function renderRoomList() {
   const section = $('publicRoomsSection');
   const list = $('roomList');
@@ -158,14 +165,15 @@ async function renderRoomList() {
   if (!section || !list) return;
   try {
     const { rooms } = await roomsApi.list();
-    const show = roomsPanelOpen || rooms.length > 0;
+    const openRooms = (rooms || []).filter(r => r.status === 'lobby');
+    const show = roomsPanelOpen || openRooms.length > 0;
     section.classList.toggle('hidden', !show);
-    empty?.classList.toggle('hidden', !show || rooms.length > 0);
-    if (!rooms.length) {
+    empty?.classList.toggle('hidden', !show || openRooms.length > 0);
+    if (!openRooms.length) {
       list.innerHTML = '';
       return;
     }
-    list.innerHTML = rooms.map(r => {
+    list.innerHTML = openRooms.map(r => {
       const humans = r.humans ?? r.slots?.filter(s => s && !s.bot).length ?? 0;
       const open = r.openSeats ?? r.slots?.filter(s => !s).length ?? 0;
       const total = r.maxPlayers || r.slots?.length || 4;
@@ -288,7 +296,8 @@ function onRoomSocketMessage(roomId, msg) {
   if (handleDiceRollMessage(msg)) return;
   if (handleSocketMessage(msg, u?.id)) return;
   if (msg.type === 'room_update' && msg.room?.id === roomId) {
-    renderBoardLobby(msg.room);
+    if (msg.room.status === 'lobby') renderBoardLobby(msg.room);
+    else handleRoomNoLongerJoinable(msg.room);
   }
   if (msg.type === 'game_start') {
     startFromPayload(msg);
@@ -305,6 +314,7 @@ function startFromPayload(payload) {
   const isMp = humanCount > 1;
   gameStarted = true;
   gameMultiplayer = isMp;
+  renderRoomList();
   const players = payload.players.map((p, i) => ({
     userId: p.userId,
     name: p.userId === u.id ? u.name : p.name,
@@ -484,8 +494,25 @@ function playLobbySlotSounds(room) {
   prevSlotSnapshot = snap;
 }
 
+function handleRoomNoLongerJoinable(room) {
+  if (gameStarted) return;
+  const u = getUser();
+  if (canRejoinRoom(room, u?.id)) {
+    void rejoinActiveGame(room);
+    return;
+  }
+  alert('This game has already started. You can no longer join.');
+  exitBoardLobby();
+  showView('home');
+  renderRoomList();
+}
+
 function renderBoardLobby(room) {
   const u = getUser();
+  if (room.status !== 'lobby') {
+    handleRoomNoLongerJoinable(room);
+    return;
+  }
   const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
   if (lobbyWasSeated && !inRoom && !gameStarted) {
     lobbyWasSeated = false;
@@ -629,6 +656,15 @@ async function joinRoom(id) {
   id = String(id || '').trim().toLowerCase();
   try {
     const { room: existing } = await roomsApi.get(id);
+    if (canRejoinRoom(existing, u.id)) {
+      await rejoinActiveGame(existing);
+      return;
+    }
+    if (existing.status !== 'lobby') {
+      alert('This game has already started. You can no longer join.');
+      renderRoomList();
+      return;
+    }
     if (existing.kicked?.reason === 'admin') {
       alert('The admin removed you from this room.');
       return;
@@ -640,17 +676,17 @@ async function joinRoom(id) {
     }
     const full = existing.slots.every(Boolean);
     if (full) {
-      enterBoardLobby(existing);
+      alert('This room is full — all player seats are taken.');
       return;
     }
     const { room } = await roomsApi.join(id, { emoji: boardJoinEmoji, color: boardJoinColor });
     history.replaceState(null, '', roomLink(id));
     enterBoardLobby(room);
   } catch (e) {
-    const msg = e.message === 'removed'
-      ? 'The admin removed you from this room.'
-      : (e.message || 'Could not join room');
+    const blocked = joinBlockedMessage(e.message);
+    const msg = blocked || (e.message || 'Could not join room');
     alert(msg);
+    renderRoomList();
   }
 }
 
@@ -670,6 +706,11 @@ async function confirmBoardJoin() {
   if (!u) return;
   try {
     const { room: pre } = await roomsApi.get(currentRoomId);
+    if (pre.status !== 'lobby') {
+      alert('This game has already started. You can no longer join.');
+      handleRoomNoLongerJoinable(pre);
+      return;
+    }
     const taken = takenColorsFromRoom(pre);
     const color = pickAvailableColor(boardJoinColor, taken);
     const { room } = await roomsApi.join(currentRoomId, {
@@ -680,10 +721,12 @@ async function confirmBoardJoin() {
     history.replaceState(null, '', roomLink(currentRoomId));
     renderBoardLobby(room);
   } catch (e) {
-    const msg = e.message === 'removed'
+    const blocked = joinBlockedMessage(e.message);
+    const msg = blocked || (e.message === 'removed'
       ? 'The admin removed you from this room.'
-      : (e.message || 'Could not join');
+      : (e.message || 'Could not join'));
     alert(msg);
+    if (e.message === 'started') handleRoomNoLongerJoinable({ id: currentRoomId, status: 'playing' });
   }
 }
 
