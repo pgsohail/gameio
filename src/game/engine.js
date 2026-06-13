@@ -27,7 +27,7 @@ import {
   initBots, assignBotBrains, botShouldBuy, botNextBid, botJailDecision,
   botRunBuildPhase, botEvaluateTrade, botMaybeProposeTrade,
 } from './bots.js';
-import { registerMastermind, mastermindThinkTime } from './mastermind.js';
+import { registerMastermind, mastermindThinkTime, mastermindRaiseCash } from './mastermind.js';
 
 registerMastermind();
 let botsReady = false;
@@ -1392,6 +1392,11 @@ async function handleLeaveGameClick(){
   document.dispatchEvent(new CustomEvent('wt:player-left-game'));
 }
 function liquidate(p,target){
+  if(p.bot&&p.botBrain==='mastermind'){
+    mastermindRaiseCash(p,target);
+    renderTiles();
+    return;
+  }
   let guard=400;
   while(p.cash<target&&guard--){
     const wh=ownedBy(p).filter(t=>t.houses>0).sort((a,b)=>a.houseCost-b.houseCost)[0];

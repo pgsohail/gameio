@@ -164,6 +164,7 @@ export function botEvaluateTrade(bot, trade) {
 
 export function botBestProposal(bot) {
   const brain = brainOf(bot);
+  if (brain.override?.bestProposal) return brain.override.bestProposal(bot);
   const tradableOf = pl => ownedBy(pl).filter(t => !t.mortgaged && t.houses === 0);
   let best = null;
   const consider = c => { if (c && (!best || c.score > best.score)) best = c; };
