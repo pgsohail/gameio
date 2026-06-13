@@ -343,8 +343,8 @@ export function mastermindBestProposal(bot) {
 }
 
 export function mastermindThinkTime(decision = 'roll') {
-  const base = { roll: 700, buy: 1100, trade: 1700, auction: 900, build: 800 }[decision] || 800;
-  return Math.round(base + Math.random() * 700);
+  const base = { roll: 220, buy: 380, trade: 520, auction: 300, build: 280 }[decision] || 280;
+  return Math.round(base + Math.random() * 160);
 }
 
 export function registerMastermind() {

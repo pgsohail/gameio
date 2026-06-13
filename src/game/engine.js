@@ -46,9 +46,9 @@ function ensureBotsReady() {
   botsReady = true;
 }
 function botThinkMs(p, kind = 'roll') {
-  if (p.botBrain === 'mastermind') return Math.round(mastermindThinkTime(kind) * 0.45);
-  const fast = { roll: 320, build: 280, auction: 400, trade: 500 };
-  return (fast[kind] || 320) + Math.random() * 220;
+  if (p.botBrain === 'mastermind') return Math.round(mastermindThinkTime(kind) * 0.3);
+  const fast = { roll: 160, build: 140, auction: 200, trade: 240 };
+  return Math.round((fast[kind] || 180) + Math.random() * 100);
 }
 
 /* ============================================================
@@ -165,6 +165,8 @@ const TRADE_EXPIRE_WARN_MS = 10_000;
 const TRADE_DECLINED_TTL_MS = 2 * 60 * 1000;
 const TRADE_ARCHIVED_TTL_MS = 2 * 60 * 1000;
 let turnTimerInterval = null;
+let botNudgeTurn = -1;
+let botNudgeSince = 0;
 let turnTimeoutHandled = false;
 const tradeActivityLog = [];
 const S={players:[],turn:0,phase:'idle',dice:[1,1],doubles:0,fortune:[],treasury:[],pot:0,over:false,recentTrades:[],openTrades:[],tradeArchive:[],rules:{},
@@ -356,7 +358,7 @@ function postSyncTurn() {
   if (!isMpGame() || isApplyingRemote()) return;
   const p = S.cur;
   if (!p) return;
-  if (p.bot && isMpHost()) setTimeout(botTurn, 80);
+  if (p.bot && localRunsBots()) scheduleBotTurn();
 }
 
 registerStateSync(exportGameState);
@@ -366,6 +368,39 @@ function isMpHost() {
   if (!isMpGame()) return true;
   const uid = getUser()?.id;
   return S.players.some(p => p.isAdmin && p.userId === uid);
+}
+
+/** Lowest-seat alive human runs bots in MP — works even when admin is away. */
+function localRunsBots() {
+  if (!isMpGame()) return true;
+  const uid = getUser()?.id;
+  if (!uid) return false;
+  const humans = S.players.filter(p => !p.bot && !p.dead && p.userId);
+  if (!humans.length) return false;
+  const runner = humans.reduce((a, b) => (a.id < b.id ? a : b));
+  return runner.userId === uid;
+}
+
+function scheduleBotTurn() {
+  if (botNudgeTurn !== S.turn) {
+    botNudgeTurn = S.turn;
+    botNudgeSince = Date.now();
+  }
+  setTimeout(botTurn, 40);
+}
+
+function tickBotNudge() {
+  if (S.over || A || !S.cur?.bot || !localRunsBots()) return;
+  if (S.phase !== 'roll' && S.phase !== 'jail') return;
+  if (botNudgeTurn !== S.turn) {
+    botNudgeTurn = S.turn;
+    botNudgeSince = Date.now();
+    return;
+  }
+  if (Date.now() - botNudgeSince > 1100) {
+    botNudgeSince = Date.now();
+    botTurn();
+  }
 }
 
 function isMyTurn() {
@@ -378,7 +413,7 @@ function mayControlTurn(p) {
   p = p ?? S.cur;
   if (!p) return false;
   if (!isMpGame()) return true;
-  if (p.bot) return isMpHost();
+  if (p.bot) return localRunsBots();
   return isMyTurn();
 }
 
@@ -864,9 +899,10 @@ function ensureTurnTimer(){
     if(S.over||!$('hud')||$('hud').classList.contains('hidden'))return;
     renderActionsCard();
     handleTurnTimeout();
+    tickBotNudge();
     maintainOpenTrades();
     checkVoteKick();
-  },1000);
+  },500);
 }
 function renderTiles(){
   TILES.forEach(t=>{
@@ -1499,10 +1535,10 @@ function startTurn(){
   else{S.phase='roll';msg(turnMsg(p));}
   renderAll();
   if(isMpGame()){
-    if(p.bot&&isMpHost())setTimeout(botTurn,80);
+    if(p.bot&&localRunsBots())scheduleBotTurn();
     return;
   }
-  if(p.bot)setTimeout(botTurn,80);
+  if(p.bot)scheduleBotTurn();
 }
 function endTurn(){
   if(S.over)return;
@@ -1511,7 +1547,7 @@ function endTurn(){
   S.phase='idle';
   S.turn=(S.turn+1)%S.players.length;
   if(isMpGame())broadcastStateNow();
-  setTimeout(startTurn,420);
+  setTimeout(startTurn,280);
 }
 
 function humanRoll(){
@@ -1593,7 +1629,7 @@ function resolveTile(p,opts={}){
     default:{
       if(t.owner==null){
         if(p.bot){
-          if(isMpGame()&&!isMpHost()){finishMovePhase(p,again);break;}
+          if(isMpGame()&&!localRunsBots()){finishMovePhase(p,again);break;}
           if(botShouldBuy(p,t)){buyCurrent(p);finishMovePhase(p,again);}
           else if(S.rules.auction){log(`<b>${p.name}</b> sends ${t.name} to auction.`,p);startAuction(t,{playerId:p.id,again});}
           else{log(`<b>${p.name}</b> passes on ${t.name}.`,p);finishMovePhase(p,again);}
@@ -1640,13 +1676,13 @@ function finishMovePhase(p,rollAgain){
   if(S.over)return;
   if(p.dead){endTurn();return;}
   renderAll();if(checkWin())return;
-  const runBots=!isMpGame()||isMpHost();
+  const runBots=localRunsBots();
   if(rollAgain&&!p.jail){
     S.phase='roll';renderDock();
-    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),400);}
+    if(p.bot){if(runBots)setTimeout(()=>doRoll(p),180);}
     else msg('Doubles! Roll again.');
   }else if(p.bot){
-    if(runBots)setTimeout(()=>{botRunBuildPhase(p);botMaybeProposeTrade(p);endTurn();},350);
+    if(runBots)setTimeout(()=>{botRunBuildPhase(p);botMaybeProposeTrade(p);endTurn();},160);
   }else{
     S.phase='end';
     msg(isMyTurn()?'Tap your properties to upgrade — or end your turn.':`Waiting for ${p.name}…`);
@@ -1660,13 +1696,13 @@ function payJailFine(p){
   p.jail=false;p.jailTurns=0;
   log(`<b>${p.name}</b> pays the $100 fine and walks free.`,p);
   S.phase='roll';msg('Free again — roll the dice.');renderAll();
-  if(p.bot)setTimeout(()=>doRoll(p),400);
+  if(p.bot&&localRunsBots())setTimeout(()=>doRoll(p),180);
 }
 function useJailCard(p){
   if(p.goojf<1)return;p.goojf--;p.jail=false;p.jailTurns=0;
   log(`🎟️ <b>${p.name}</b> uses a Get Out of Prison Free card.`,p);
   S.phase='roll';msg('Free again — roll the dice.');renderAll();
-  if(p.bot)setTimeout(()=>doRoll(p),400);
+  if(p.bot&&localRunsBots())setTimeout(()=>doRoll(p),180);
 }
 function jailRoll(p){
   if(!mayControlTurn(p))return;
@@ -1685,7 +1721,7 @@ function jailRoll(p){
         payTo(p,null,100);if(p.dead){endTurn();return;}
         p.jail=false;p.jailTurns=0;
         animateMove(p,total,()=>resolveTile(p,{}));
-      }else if(p.bot)setTimeout(endTurn,600);
+      }else if(p.bot&&localRunsBots())setTimeout(endTurn,380);
       else{S.phase='end';msg('Still locked up. End your turn.');renderAll();}
     }
   },msUntilDiceDone(startAt));
@@ -1937,7 +1973,7 @@ function ensureAucTimer(){
     }
     updateAucTimerBar();
     if(Date.now()>=A.turnDeadline){
-      if(!isMpGame()||isMpHost())onAucTurnTimeout();
+      if(!isMpGame()||localRunsBots())onAucTurnTimeout();
     }
   },100);
 }
@@ -1969,7 +2005,7 @@ function updateAucTimerBar(){
 }
 
 function onAucTurnTimeout(){
-  if(!A||(isMpGame()&&!isMpHost()))return;
+  if(!A||(isMpGame()&&!localRunsBots()))return;
   const cur=aucCur();
   A.turnDeadline=0;
   if(A.leader!=null){
@@ -2045,13 +2081,13 @@ function restoreAuctionState(data){
   $('aucModal')?.classList.remove('hidden');
   aucRender();
   updateAucRestoreBar();
-  if(A.turnDeadline&&Date.now()>=A.turnDeadline&&( !isMpGame()||isMpHost())){
+  if(A.turnDeadline&&Date.now()>=A.turnDeadline&&( !isMpGame()||localRunsBots())){
     onAucTurnTimeout();
   }else if(A.turnDeadline){
     ensureAucTimer();
     updateAucTimerBar();
   }
-  if(!wasActive&&aucCur()?.bot&&isMpHost())setTimeout(aucStep,400);
+  if(!wasActive&&aucCur()?.bot&&localRunsBots())setTimeout(aucStep,220);
 }
 function startAuction(tile,after={}){
   const bidders=alive().filter(p=>p.cash>=10);
@@ -2130,7 +2166,7 @@ function aucFold(p){
 }
 function aucStep(){
   if(!A)return;
-  if(isMpGame()&&!isMpHost()){aucRender();return;}
+  if(isMpGame()&&!localRunsBots()){aucRender();return;}
   if(A.active.length===0){aucEnd(null);return;}
   if(A.active.length===1&&A.leader===A.active[0]){aucEnd(A.leader);return;}
   if(A.active.length===1&&A.leader==null){
@@ -2165,7 +2201,7 @@ $('aucB50').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+50);};
 $('aucB100').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+100);};
 $('aucFold').onclick=()=>{const p=aucCur();if(!p.bot)aucFold(p);};
 function aucEnd(winnerId){
-  if(isMpGame()&&!isMpHost())return;
+  if(isMpGame()&&!localRunsBots())return;
   clearAucTimer();
   $('aucModal').classList.add('hidden');
   $('aucModal')?.classList.remove('overlay--minimized');
@@ -2244,7 +2280,7 @@ function sortOpenTrades(list){
   });
 }
 function maintainOpenTrades(){
-  if(isMpGame()&&!isMpHost())return;
+  if(isMpGame()&&!localRunsBots())return;
   const now=Date.now();
   let changed=false;
   const open=S.openTrades||[];
@@ -2794,7 +2830,7 @@ function openManage(p){
 ============================================================ */
 function botTurn(){
   const p=S.cur;if(S.over||p.dead||!p.bot)return;
-  if(isMpGame()&&!isMpHost())return;
+  if(isMpGame()&&!localRunsBots())return;
   const act=()=>{
     if(p.jail){
       const j=botJailDecision(p);
@@ -2803,10 +2839,9 @@ function botTurn(){
       else jailRoll(p);
       return;
     }
-    msg(`${p.name} is rolling…`);
     doRoll(p);
   };
-  setTimeout(act, Math.min(botThinkMs(p, 'roll'), 650));
+  setTimeout(act, Math.min(botThinkMs(p, 'roll'), 240));
 }
 
 /* ============================================================
