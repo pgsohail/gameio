@@ -3070,6 +3070,9 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
   color:rgba(255,255,255,.45);margin-bottom:10px;
 }
+.home-rooms__title strong{
+  color:var(--gold-bright);font-weight:800;font-size:11px;letter-spacing:.06em;
+}
 .home-rooms__refresh{
   width:28px;height:28px;border-radius:8px;font-size:14px;
   background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;cursor:pointer;

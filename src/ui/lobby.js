@@ -164,9 +164,11 @@ async function renderRoomList() {
   const empty = $('homeRoomsEmpty');
   if (!section || !list) return;
   try {
-    const { rooms } = await roomsApi.list();
+    const { rooms, playingCount = 0 } = await roomsApi.list();
+    const playingEl = $('homePlayingCount');
+    if (playingEl) playingEl.textContent = String(playingCount);
     const openRooms = (rooms || []).filter(r => r.status === 'lobby');
-    const show = roomsPanelOpen || openRooms.length > 0;
+    const show = roomsPanelOpen || openRooms.length > 0 || playingCount > 0;
     section.classList.toggle('hidden', !show);
     empty?.classList.toggle('hidden', !show || openRooms.length > 0);
     if (!openRooms.length) {

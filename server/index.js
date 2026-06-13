@@ -159,6 +159,11 @@ function publicRoomList() {
     .map(roomToClient);
 }
 
+function publicPlayingCount() {
+  pruneRooms();
+  return [...rooms.values()].filter(r => !r.private && r.status === 'playing').length;
+}
+
 const JOIN_COLORS = ['#FF1744', '#F50057', '#651FFF', '#3D5AFE', '#00E5FF', '#00E676', '#FFEA00', '#FF9100'];
 const JOIN_EMOJIS = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
 
@@ -598,7 +603,7 @@ app.get('/api/store', (_req, res) => {
 
 app.get('/api/rooms', (_req, res) => {
   maintainBotHostedRoom(rooms, humanCount, hoidCtx());
-  res.json({ rooms: publicRoomList() });
+  res.json({ rooms: publicRoomList(), playingCount: publicPlayingCount() });
 });
 
 app.get('/api/rooms/:id', authMiddleware, (req, res) => {
