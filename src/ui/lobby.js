@@ -255,9 +255,28 @@ function handleLobbyChatSubmit(e) {
 
 function joinBlockedMessage(err) {
   if (err === 'started') return 'This game has already started. You can no longer join.';
+  if (err === 'full') return 'This room is full — all player seats are taken.';
   if (err === 'removed') return 'The admin removed you from this room.';
   if (err === 'private') return 'This is a private room — you need an invite link from the host.';
   return null;
+}
+
+function roomUserKicked(room, userId) {
+  if (!userId || !room?.kicked) return null;
+  if (room.kicked.reason) return room.kicked;
+  return room.kicked[userId] || null;
+}
+
+function isRoomJoinable(room, userId) {
+  if (!room || room.status !== 'lobby') return false;
+  if (roomUserKicked(room, userId)) return false;
+  if (userId && room.slots?.some(s => s?.userId === userId)) return true;
+  return room.slots?.some(s => !s);
+}
+
+function syncLobbySeatedFlag(room) {
+  const u = getUser();
+  lobbyWasSeated = !!(u && room?.slots?.some(s => s?.userId === u.id));
 }
 
 let cachedFakePlaying = 0;
@@ -351,7 +370,9 @@ async function renderRoomList() {
   try {
     const { rooms, playingCount = 0, live = {} } = await roomsApi.list();
     updateLiveActivityUI(live);
-    const openRooms = (rooms || []).filter(r => r.status === 'lobby');
+    const openRooms = (rooms || []).filter(r =>
+      r.status === 'lobby' && (r.openSeats ?? r.slots?.filter(s => !s).length ?? 0) > 0,
+    );
     const realPublicPlaying = live.publicPlaying ?? playingCount ?? 0;
     const show = roomsPanelOpen || openRooms.length > 0 || realPublicPlaying > 0;
     section.classList.toggle('hidden', !show);
@@ -474,7 +495,13 @@ function startLobbyPoll(roomId) {
     try {
       const { room } = await roomsApi.get(roomId);
       if (room.status === 'lobby') renderBoardLobby(room);
-    } catch { /* room expired */ }
+      else handleRoomNoLongerJoinable(room);
+    } catch (e) {
+      if (e.message === 'started' || e.message === 'private') {
+        handleRoomNoLongerJoinable({ id: roomId, status: 'playing' });
+      }
+      stopLobbyPoll();
+    }
   }, 2000);
 }
 
@@ -607,6 +634,7 @@ function exitBoardLobby() {
 function enterBoardLobby(room) {
   stopLiveStatsPoll();
   currentRoomId = room.id;
+  syncLobbySeatedFlag(room);
   prevSlotSnapshot = null;
   sessionStorage.removeItem(LOBBY_VIEW_KEY);
   $('hubTop')?.classList.add('hidden');
@@ -707,7 +735,11 @@ function handleRoomNoLongerJoinable(room) {
     void rejoinActiveGame(room);
     return;
   }
-  alert('This game has already started. You can no longer join.');
+  lobbyWasSeated = false;
+  const wasMember = wasPlayerInRoom(room, u?.id);
+  alert(wasMember
+    ? 'This game has already started.'
+    : 'This game has already started. You can no longer join.');
   exitBoardLobby();
   showView('home');
   renderRoomList();
@@ -720,26 +752,36 @@ function renderBoardLobby(room) {
     return;
   }
   const inRoom = !!u && room.slots.some(s => s?.userId === u.id);
-  if (lobbyWasSeated && !inRoom && !gameStarted) {
-    lobbyWasSeated = false;
-    const msg = room.kicked?.reason === 'admin'
-      ? 'The admin removed you from this room.'
-      : 'You are no longer in this room.';
-    alert(msg);
-    exitBoardLobby();
-    showView('home');
-    renderRoomList();
-    return;
-  }
-  lobbyWasSeated = inRoom;
+  const kicked = roomUserKicked(room, u?.id);
 
-  if (!inRoom && room.kicked?.reason === 'admin') {
+  if (!inRoom && kicked?.reason === 'admin') {
+    lobbyWasSeated = false;
     alert('The admin removed you from this room.');
     exitBoardLobby();
     showView('home');
     renderRoomList();
     return;
   }
+
+  if (lobbyWasSeated && !inRoom && !gameStarted) {
+    lobbyWasSeated = false;
+    alert('You are no longer in this room.');
+    exitBoardLobby();
+    showView('home');
+    renderRoomList();
+    return;
+  }
+
+  if (!inRoom && !room.slots.some(s => !s)) {
+    lobbyWasSeated = false;
+    alert('This room is full — all player seats are taken.');
+    exitBoardLobby();
+    showView('home');
+    renderRoomList();
+    return;
+  }
+
+  lobbyWasSeated = inRoom;
 
   const isHost = u && room.hostId === u.id;
   const full = room.slots.every(Boolean);
@@ -862,29 +904,27 @@ async function joinRoom(id) {
   const u = await ensureUser();
   if (!u) return;
   id = String(id || '').trim().toLowerCase();
+  lobbyWasSeated = false;
   try {
     const { room: existing } = await roomsApi.get(id);
     if (canRejoinRoom(existing, u.id)) {
       await rejoinActiveGame(existing);
       return;
     }
-    if (existing.status !== 'lobby') {
-      alert('This game has already started. You can no longer join.');
+    if (!isRoomJoinable(existing, u.id)) {
+      if (existing.status !== 'lobby') {
+        alert('This game has already started. You can no longer join.');
+      } else if (roomUserKicked(existing, u.id)) {
+        alert('The admin removed you from this room.');
+      } else {
+        alert('This room is full — all player seats are taken.');
+      }
       renderRoomList();
-      return;
-    }
-    if (existing.kicked?.reason === 'admin') {
-      alert('The admin removed you from this room.');
       return;
     }
     const alreadyIn = existing.slots.some(s => s?.userId === u.id);
     if (alreadyIn) {
       enterBoardLobby(existing);
-      return;
-    }
-    const full = existing.slots.every(Boolean);
-    if (full) {
-      alert('This room is full — all player seats are taken.');
       return;
     }
     const { room } = await roomsApi.join(id, { emoji: boardJoinEmoji, color: boardJoinColor });
@@ -894,6 +934,7 @@ async function joinRoom(id) {
     const blocked = joinBlockedMessage(e.message);
     const msg = blocked || (e.message || 'Could not join room');
     alert(msg);
+    if (e.message === 'started') handleRoomNoLongerJoinable({ id, status: 'playing' });
     renderRoomList();
   }
 }
@@ -1227,6 +1268,14 @@ function resumePausedSession() {
     document.body.classList.add('room-lobby-mode');
     setGameBrandVisible(true);
     showRoomChat('lobby');
+    roomsApi.get(currentRoomId).then(({ room }) => {
+      if (room.status === 'lobby') renderBoardLobby(room);
+      else handleRoomNoLongerJoinable(room);
+    }).catch(() => {
+      exitBoardLobby();
+      showView('home');
+      renderRoomList();
+    });
   }
 }
 
@@ -1304,7 +1353,7 @@ function wasPlayerInRoom(room, userId) {
 
 function canRejoinRoom(room, userId) {
   if (room.status !== 'playing' || !wasPlayerInRoom(room, userId)) return false;
-  if (room.kicked) return false;
+  if (roomUserKicked(room, userId)) return false;
   const gp = room.gameState?.players?.find(p => p.userId === userId);
   if (gp?.dead) return false;
   if (room.rejoinUntil && Date.now() > room.rejoinUntil) return false;
@@ -1312,13 +1361,14 @@ function canRejoinRoom(room, userId) {
 }
 
 function rejoinBlockedMessage(room) {
-  if (room.kicked?.reason === 'vote') {
+  const kicked = roomUserKicked(room, getUser()?.id);
+  if (kicked?.reason === 'vote') {
     return 'Your teammates vote-kicked you from this game.';
   }
-  if (room.kicked?.reason === 'leave') {
+  if (kicked?.reason === 'leave') {
     return 'You left this game.';
   }
-  if (room.kicked || (room.rejoinUntil && Date.now() > room.rejoinUntil)) {
+  if (kicked || (room.rejoinUntil && Date.now() > room.rejoinUntil)) {
     return 'Your 2-minute rejoin window expired — you were removed from the game.';
   }
   const gp = room.gameState?.players?.find(p => p.userId === getUser()?.id);
@@ -1438,18 +1488,31 @@ async function openInviteRoom() {
       await rejoinActiveGame(pendingRejoinRoom || room);
       return;
     }
-    if (room.status !== 'lobby') {
-      showInviteError(id, rejoinBlockedMessage(room), true);
+    if (!isRoomJoinable(room, u?.id) && !canRejoinRoom(room, u?.id)) {
+      if (room.status !== 'lobby') {
+        showInviteError(id, rejoinBlockedMessage(room), true);
+      } else if (roomUserKicked(room, u?.id)) {
+        showInviteError(id, 'The admin removed you from this room.', true);
+      } else {
+        showInviteError(id, 'This room is full — all player seats are taken.', true);
+      }
       return;
     }
     const inRoom = room.slots.some(s => s?.userId === u.id);
-    if (room.slots.every(Boolean) && !inRoom) {
-      alert('This room is full — all player seats are taken.');
+    if (inRoom) {
+      hideInviteCard();
+      enterBoardLobby(room);
       return;
     }
+    hideInviteCard();
     enterBoardLobby(room);
   } catch (e) {
-    alert(e.message || 'Room not found. Ask the host for a new link (rooms reset if the server restarted).');
+    const blocked = joinBlockedMessage(e.message);
+    showInviteError(
+      id,
+      blocked || e.message || 'Room not found. Ask the host for a new link (rooms reset if the server restarted).',
+      !!blocked,
+    );
   }
 }
 
@@ -1514,21 +1577,28 @@ async function handleRoomDeepLink() {
       }
       return true;
     }
-    if (room.status !== 'lobby') {
-      showInviteError(id, rejoinBlockedMessage(room), true);
+    if (!isRoomJoinable(room, u?.id)) {
+      if (room.status !== 'lobby') {
+        showInviteError(id, rejoinBlockedMessage(room), true);
+      } else if (roomUserKicked(room, u?.id)) {
+        showInviteError(id, 'The admin removed you from this room.', true);
+      } else {
+        showInviteError(id, 'This room is full — all player seats are taken.', true);
+      }
       return false;
     }
-    if (room.slots.every(Boolean) && !inRoom) {
-      showInviteError(id, 'This room is full — all player seats are taken.', true);
-      return false;
+    if (inRoom) {
+      enterBoardLobby(room);
+      return true;
     }
-    enterBoardLobby(room);
+    showInviteCard(id, 'Pick your traveler and tap Enter room to join.');
     return true;
-  } catch {
+  } catch (e) {
+    const blocked = joinBlockedMessage(e.message);
     showInviteError(
       id,
-      'Room not found or expired. The server may have restarted — ask the host for a new link.',
-      true,
+      blocked || e.message || 'Room not found or expired. The server may have restarted — ask the host for a new link.',
+      !!blocked,
     );
     return false;
   }

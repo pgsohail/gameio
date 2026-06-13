@@ -836,6 +836,9 @@ app.post('/api/rooms/:id/join', authMiddleware, (req, res) => {
   if (room.slots.some(s => s?.userId === req.user.id)) {
     return res.json({ room: roomToClient(room, req.user.id) });
   }
+  if (!room.slots.some(s => !s)) {
+    return res.status(400).json({ error: 'full', message: 'Room full' });
+  }
   const result = seatUserInRoom(room, req.user, req.body || {});
   if (!result.ok) return res.status(400).json({ error: result.error || 'Room full' });
   syncLobbyFillers(room);
