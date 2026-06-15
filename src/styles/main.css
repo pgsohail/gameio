@@ -3589,7 +3589,15 @@ body.room-lobby-mode #scene{z-index:1;padding:0;align-items:center;justify-conte
   background:linear-gradient(160deg,rgba(248,113,113,.12),rgba(255,255,255,.04));
 }
 .home-sec--spectate:hover{border-color:rgba(248,113,113,.45)}
-.home-spectate{margin-top:14px}
+.home-spectate-panel.home-all-rooms--open{
+  border-color:rgba(248,113,113,.16);
+  box-shadow:0 16px 40px rgba(0,0,0,.3),0 0 24px rgba(248,113,113,.06),inset 0 1px 0 rgba(255,255,255,.06);
+}
+.home-spectate-panel .home-all-rooms__label strong{color:#fca5a5}
+.home-sec--spectate.home-sec--active{
+  border-color:rgba(248,113,113,.4)!important;
+  background:rgba(248,113,113,.12)!important;
+}
 .room-card--spectate{border-color:rgba(248,113,113,.15)}
 .room-card--spectate:hover{border-color:rgba(248,113,113,.32)}
 .room-card__meta--live{color:#fca5a5;font-weight:700}

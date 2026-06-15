@@ -527,12 +527,16 @@ function renderSpectateList(rooms = [], live = {}) {
   const empty = $('spectateEmpty');
   if (!section || !list) return;
   const liveGames = rooms.filter(r => r.status === 'playing' && (r.humans ?? 0) > 0);
-  const count = live.publicPlaying ?? liveGames.length;
+  const humansLive = live.humansPlaying ?? 0;
   const countEl = $('spectateLiveCount');
-  if (countEl) countEl.textContent = String(count);
-  const show = spectatePanelOpen || liveGames.length > 0;
-  section.classList.toggle('hidden', !show);
+  if (countEl) countEl.textContent = String(liveGames.length);
+  $('spectateLiveDots')?.classList.toggle('hidden', liveGames.length < 1 || humansLive < 1);
+  const show = spectatePanelOpen;
+  section.classList.toggle('home-all-rooms--open', show);
+  section.setAttribute('aria-hidden', show ? 'false' : 'true');
+  $('homeSpectate')?.classList.toggle('home-sec--active', show);
   empty?.classList.toggle('hidden', liveGames.length > 0);
+  if (!show) return;
   if (!liveGames.length) {
     list.innerHTML = '';
     return;
@@ -1905,12 +1909,13 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   syncPrivateHint();
   $('homeAllRooms')?.addEventListener('click', () => {
     roomsPanelOpen = !roomsPanelOpen;
+    if (roomsPanelOpen) spectatePanelOpen = false;
     renderRoomList();
   });
   $('homeSpectate')?.addEventListener('click', () => {
-    spectatePanelOpen = true;
+    spectatePanelOpen = !spectatePanelOpen;
+    if (spectatePanelOpen) roomsPanelOpen = false;
     renderRoomList();
-    $('lobbyBelowFold')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   $('spectateRefresh')?.addEventListener('click', () => {
     spectatePanelOpen = true;
