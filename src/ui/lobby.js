@@ -409,16 +409,21 @@ function formatLivePair(humans, rooms) {
   return `${String(h).padStart(2, '0')}/${String(r).padStart(2, '0')}`;
 }
 
-function updateRoomsSectionHeader() {
+function updateRoomsSectionHeader(live = {}) {
   const playingEl = $('homePlayingCount');
   if (playingEl) playingEl.textContent = String(fakePlayingDisplayCount());
+  const dots = $('homeRoomsLiveDots');
+  if (dots) {
+    const humans = live.humansPlaying ?? 0;
+    dots.classList.toggle('hidden', humans < 1);
+  }
 }
 
 function updateLiveActivityUI(live = {}) {
   const humans = live.humansPlaying ?? 0;
   const rooms = live.activeRooms ?? 0;
   const pair = formatLivePair(humans, rooms);
-  const active = humans > 0 || rooms > 0;
+  const active = humans > 0;
 
   ['lobbyLiveStat1', 'lobbyLiveStat2', 'lobbyLiveStat3', 'lobbyLiveStat4'].forEach(id => {
     const el = $(id);
@@ -428,7 +433,7 @@ function updateLiveActivityUI(live = {}) {
     }
   });
 
-  updateRoomsSectionHeader();
+  updateRoomsSectionHeader(live);
 }
 
 function shouldPollLiveStats() {
@@ -450,11 +455,11 @@ async function refreshLiveStats() {
 function startLiveStatsPoll() {
   if (liveStatsTimer) clearInterval(liveStatsTimer);
   updateLiveActivityUI({});
-  updateRoomsSectionHeader();
+  updateRoomsSectionHeader({});
   refreshLiveStats();
   liveStatsTimer = setInterval(() => {
     refreshLiveStats();
-    updateRoomsSectionHeader();
+    updateRoomsSectionHeader(live);
   }, LIVE_STATS_POLL_MS);
 }
 
