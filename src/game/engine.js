@@ -20,8 +20,10 @@ import { BRIGHT_COLORS } from '../lib/colors.js';
 import { getUser } from '../lib/auth.js';
 import {
   isMpGame, isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
-  broadcastStateNow, broadcastDiceRoll, registerStateSync, registerStateImporter,
-  registerDiceRollHandler, rebuildDeck,
+  broadcastStateNow, broadcastDiceRoll, broadcastGameLog, broadcastPlayerMove,
+  registerStateSync, registerStateImporter,
+  registerDiceRollHandler, registerGameLogHandler, registerPlayerMoveHandler,
+  rebuildDeck,
 } from '../lib/multiplayer.js';
 import {
   initBots, assignBotBrains, botShouldBuy, botNextBid, botJailDecision,
@@ -255,9 +257,55 @@ function exportGameState() {
 }
 
 let remoteRollUntil = 0;
+const seenLogIds = new Set();
+const animatingPlayers = new Set();
+
+function ingestRemoteGameLog(entry) {
+  if (!entry?.html) return;
+  if (entry.id) {
+    if (seenLogIds.has(entry.id)) return;
+    seenLogIds.add(entry.id);
+    if (seenLogIds.size > 300) {
+      for (const id of [...seenLogIds].slice(0, 80)) seenLogIds.delete(id);
+    }
+  }
+  const logEl = $('log');
+  if (!logEl) return;
+  const d = document.createElement('div');
+  d.className = 'logline' + (entry.meta?.tradeId ? ' logline--trade' : '');
+  if (entry.color) d.style.setProperty('--lc', entry.color);
+  d.innerHTML = formatLogHtml(entry.html);
+  if (entry.meta?.tradeId) {
+    d.dataset.tradeId = entry.meta.tradeId;
+    d.title = 'Click to view trade details';
+    d.onclick = () => openTradeFromLog(entry.meta.tradeId, entry.meta.kind || 'open');
+  }
+  logEl.prepend(d);
+  while (logEl.children.length > 90) logEl.lastChild.remove();
+  renderHubActivity();
+}
+
+function onRemoteGameLog(msg) {
+  if (msg.type === 'history') {
+    for (const entry of msg.entries || []) ingestRemoteGameLog(entry);
+    return;
+  }
+  if (msg.type === 'entry') ingestRemoteGameLog(msg.entry);
+}
+
+function onRemotePlayerMove(msg) {
+  const uid = getUser()?.id;
+  if (msg.userId && uid && msg.userId === uid && !S.spectating) return;
+  const p = S.players.find(x => x.userId === msg.userId);
+  if (!p || p.dead) return;
+  const steps = +msg.steps;
+  if (!steps) return;
+  animateMove(p, steps, () => { renderAll(); });
+}
 
 function importGameState(state) {
   if (!state || !state.players?.length) return;
+  const wasOver = S.over;
   S.turn = state.turn ?? 0;
   S.phase = state.phase ?? 'idle';
   if (Date.now() >= remoteRollUntil) S.dice = state.dice || [1, 1];
@@ -268,9 +316,10 @@ function importGameState(state) {
   state.players.forEach((sp, i) => {
     const p = S.players[i];
     if (!p) return;
+    const posUpdate = animatingPlayers.has(p.id) ? {} : { pos: sp.pos };
     Object.assign(p, {
       cash: sp.cash,
-      pos: sp.pos,
+      ...posUpdate,
       jail: sp.jail,
       jailTurns: sp.jailTurns,
       goojf: sp.goojf,
@@ -329,6 +378,10 @@ function importGameState(state) {
     Dice3D.setValues(S.dice[0], S.dice[1], false);
   }
   renderAll();
+  if (S.spectating && S.over && !wasOver) {
+    const winner = alive()[0];
+    if (winner) showGameOverModal(winner);
+  }
   checkVoteKick();
   transferGameAdmin();
   ensureTurnContinuity();
@@ -413,26 +466,28 @@ function ensureTurnContinuity() {
 
 function onRemoteDiceRoll(msg) {
   const uid = getUser()?.id;
-  if (msg.rollerUserId && uid && msg.rollerUserId === uid) return;
+  const isOwn = msg.rollerUserId && uid && msg.rollerUserId === uid;
   const d1 = +msg.d1;
   const d2 = +msg.d2;
   if (d1 < 1 || d2 < 1) return;
   const startAt = msg.startAt || Date.now();
   remoteRollUntil = startAt + DICE_ROLL_MS + 200;
   S.dice = [d1, d2];
-  const isDouble = d1 === d2 && S.rules.doubles;
-  Dice3D.rollAt(d1, d2, startAt);
+  if (!isOwn) Dice3D.rollAt(d1, d2, startAt);
   const p = S.players[S.turn];
   const label = msg.rollerName || p?.name || 'Player';
   const total = d1 + d2;
+  const isDouble = d1 === d2 && S.rules.doubles;
   if (S.phase === 'jail' || p?.jail) {
     msg(`${label} rolls for doubles…`);
   } else {
-    log(`<b>${label}</b> rolls <b>${d1} + ${d2} = ${total}</b>${isDouble ? ' (doubles!)' : ''}.`, p || undefined);
+    msg(`${label} rolls ${d1} + ${d2} = ${total}${isDouble ? ' (doubles!)' : ''}.`);
   }
 }
 
 registerDiceRollHandler(onRemoteDiceRoll);
+registerGameLogHandler(onRemoteGameLog);
+registerPlayerMoveHandler(onRemotePlayerMove);
 
 function postSyncTurn() {
   if (!isMpGame() || isApplyingRemote()) return;
@@ -547,6 +602,8 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     S.tradeArchive = [];
     tradeSeq = 1;
     S.over = false;
+    seenLogIds.clear();
+    animatingPlayers.clear();
     S.turn = 0;
     S.phase = 'idle';
     initBoard(per);
@@ -563,7 +620,9 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     const vk=$('voteKickBtn'); if(vk)vk.onclick=castVoteKick;
     const bb=$('bankruptBtn'); if(bb)bb.onclick=openBankruptConfirm;
     renderAll();
-    log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
+    if (!skipStartTurn) {
+      log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
+    }
     if (S.spectating) {
       $('spectateBanner')?.classList.remove('hidden');
       $('hudLeaveMiniBtn')?.classList.remove('hidden');
@@ -1232,6 +1291,9 @@ function log(html,p,meta={}){
   logEl.prepend(d);
   while(logEl.children.length>90)logEl.lastChild.remove();
   renderHubActivity();
+  if (isMultiplayerActive() && !isApplyingRemote() && !S.spectating) {
+    broadcastGameLog(html, p?.color, meta);
+  }
 }
 function tileIcon(t){return tileIconHTML(t);}
 function tileSub(t){if(t.type==='city')return GROUPS[t.group]?.name||'City';if(t.type==='air')return 'Airport';if(t.type==='utl')return 'Utility';return t.type;}
@@ -1675,7 +1737,9 @@ function doRoll(p){
   S.phase='moving';renderDock();
   const {total,startAt}=rollDiceAndBroadcast(p);
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
-  if(!isMpGame()){
+  if (isMpGame() && mayControlTurn(p)) {
+    log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble ? ' (doubles!)' : ''}.`, p);
+  } else if (!isMpGame()) {
     log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble?' (doubles!)':''}.`,p);
   }
   setTimeout(()=>{
@@ -1686,13 +1750,23 @@ function doRoll(p){
   },msUntilDiceDone(startAt));
 }
 function animateMove(p,steps,done){
+  const shouldBroadcast = isMpGame() && !isApplyingRemote() && !S.spectating
+    && (mayControlTurn(p) || (p.bot && localRunsBots()));
+  if (shouldBroadcast) broadcastPlayerMove(p.userId, steps, Date.now() + 80);
+  animatingPlayers.add(p.id);
   const dir=steps<0?-1:1;let left=Math.abs(steps);
   const step=()=>{
-    if(left===0){done();return;}
+    if(left===0){
+      animatingPlayers.delete(p.id);
+      done();
+      return;
+    }
     p.pos=(p.pos+dir+N)%N;
     if(p.pos===0&&dir===1){
       p.cash+=S.rules.salary;
-      log(`<b>${p.name}</b> passes START and collects $${S.rules.salary.toLocaleString()}.`,p);
+      if (!isMpGame() || S.spectating || isApplyingRemote()) {
+        log(`<b>${p.name}</b> passes START and collects $${S.rules.salary.toLocaleString()}.`,p);
+      }
       playTileCashFx(TILES[0],S.rules.salary,{color:p.color});
       renderPlayers();
     }

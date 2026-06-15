@@ -9,7 +9,9 @@ import {
   connectLobbyFeedSocket, connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, sendRoomSocket, subscribeWhenOpen,
 } from '../lib/api.js';
 import {
-  enableMultiplayer, enableSpectator, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
+  enableMultiplayer, enableSpectator, detachMultiplayer,
+  handleSocketMessage, handleDiceRollMessage, handleGameLogMessage, handlePlayerMoveMessage,
+  applyGameState,
 } from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 import { boardName, boardTagline } from '../lib/boards.js';
@@ -244,13 +246,13 @@ function appendLobbyChatMessage(msg, { silent = false } = {}) {
 }
 
 function syncLobbyChatCompose(canSend) {
-  lobbyCanSendChat = !!canSend && !gameSpectating;
+  lobbyCanSendChat = gameSpectating || !!canSend;
   const input = $('lobbyChatInput');
   const send = $('lobbyChatForm')?.querySelector('.chat-panel__send');
   if (input) {
     input.disabled = !lobbyCanSendChat;
     if (gameSpectating) {
-      input.placeholder = 'Spectators can read only…';
+      input.placeholder = 'Suggest a move to players…';
     } else {
       input.placeholder = canSend ? 'Type a message…' : 'Join the room to chat…';
     }
@@ -258,12 +260,16 @@ function syncLobbyChatCompose(canSend) {
   if (send) send.disabled = !lobbyCanSendChat;
 }
 
-function refreshRoomChatAccess({ inRoom = false } = {}) {
-  if (gameSpectating) {
-    syncLobbyChatCompose(false);
+function refreshRoomChatAccess({ inRoom = false, spectate = false } = {}) {
+  if (gameSpectating || spectate) {
+    syncLobbyChatCompose(true);
+    const title = $('lobbyChat')?.querySelector('.chat-panel__title');
+    if (title) title.textContent = 'Suggest to players';
     return;
   }
-  const canSend = !gameSpectating && (!!inRoom || (gameStarted && !!currentRoomId));
+  const title = $('lobbyChat')?.querySelector('.chat-panel__title');
+  if (title) title.textContent = 'Room chat';
+  const canSend = !!inRoom || (gameStarted && !!currentRoomId);
   syncLobbyChatCompose(canSend);
 }
 
@@ -305,11 +311,12 @@ function renderLobbyChatFeed(scrollToEnd = false) {
     const mine = u && m.userId === u.id;
     const showName = !mine && m.userId !== prevUserId;
     prevUserId = m.userId;
+    const spect = m.spectator ? ' chat-msg--spectator' : '';
     html += `
-      <article class="chat-msg ${mine ? 'chat-msg--out' : 'chat-msg--in'}">
+      <article class="chat-msg ${mine ? 'chat-msg--out' : 'chat-msg--in'}${spect}">
         ${mine ? '' : `<span class="chat-msg__avatar" style="--mc:${esc(m.color || '#888')}">${esc(m.emoji || '🚂')}</span>`}
         <div class="chat-msg__body">
-          ${showName ? `<span class="chat-msg__author">${esc(m.name || 'Player')}</span>` : ''}
+          ${showName ? `<span class="chat-msg__author">${m.spectator ? '💡 ' : ''}${esc(m.name || 'Player')}${m.spectator ? ' · spectator' : ''}</span>` : ''}
           <p class="chat-msg__text${m.pending ? ' chat-msg__text--pending' : ''}">${esc(m.text)}</p>
         </div>
       </article>`;
@@ -329,15 +336,16 @@ function sendLobbyChatMessage(text) {
     id: `opt-${Date.now()}`,
     userId: u.id,
     name: myChatProfile.name || u.name,
-    emoji: myChatProfile.emoji,
-    color: myChatProfile.color,
+    emoji: gameSpectating ? '👁' : myChatProfile.emoji,
+    color: gameSpectating ? '#FB923C' : myChatProfile.color,
     text: trimmed.slice(0, 280),
     at: Date.now(),
     pending: true,
+    spectator: gameSpectating,
   };
   appendLobbyChatMessage(optimistic, { silent: true });
   const ok = sendRoomSocket(roomSocket, {
-    type: 'lobby_chat',
+    type: gameSpectating ? 'spectator_chat' : 'lobby_chat',
     roomId: currentRoomId,
     text: optimistic.text,
   });
@@ -664,8 +672,8 @@ function enterSpectate(room) {
   document.body.classList.remove('room-lobby-mode');
   setGameBrandVisible(true);
   showRoomChat('game');
-  refreshRoomChatAccess({ inRoom: false });
-  subscribeRoom(room.id);
+  refreshRoomChatAccess({ spectate: true });
+  subscribeRoom(room.id, { spectate: true });
   const adminId = room.adminId ?? 0;
   const players = (room.players || []).map((p, i) => ({
     userId: p.userId,
@@ -686,7 +694,6 @@ function enterSpectate(room) {
     skipStartTurn: !!room.gameState,
   });
   enableSpectator(roomSocket, room.id);
-  subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: room.id });
   if (room.gameState) applyGameState(room.gameState);
 }
 
@@ -790,19 +797,22 @@ function startLobbyPoll(roomId) {
 function onRoomSocketMessage(roomId, msg) {
   const u = getUser();
   if (handleDiceRollMessage(msg)) return;
+  if (handleGameLogMessage(msg)) return;
+  if (handlePlayerMoveMessage(msg)) return;
   if (handleSocketMessage(msg, u?.id)) return;
   if (msg.type === 'room_update' && msg.room?.id === roomId) {
+    if (gameSpectating) return;
     if (msg.room.status === 'lobby') renderBoardLobby(msg.room);
     else handleRoomNoLongerJoinable(msg.room);
   }
-  if (msg.type === 'game_start') {
+  if (msg.type === 'game_start' && !gameSpectating) {
     startFromPayload(msg);
   }
   if (msg.type === 'lobby_chat_history' && msg.roomId === roomId) {
     setLobbyChatHistory(msg.messages);
     return;
   }
-  if (msg.type === 'lobby_chat' && msg.roomId === roomId && msg.message) {
+  if ((msg.type === 'lobby_chat' || msg.type === 'spectator_chat') && msg.roomId === roomId && msg.message) {
     appendLobbyChatMessage(msg.message);
   }
 }
@@ -869,11 +879,15 @@ function disconnectRoomSocket() {
   roomSocket = null;
 }
 
-function subscribeRoom(roomId) {
+function subscribeRoom(roomId, { spectate = false } = {}) {
   disconnectRoomSocket();
   const rid = String(roomId).toLowerCase();
   roomSocket = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
   subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
+  if (spectate) enableSpectator(roomSocket, rid);
+  roomSocket?.addEventListener('open', () => {
+    if (spectate && currentRoomId === rid) enableSpectator(roomSocket, rid);
+  }, { once: false });
   roomSocket?.addEventListener('close', () => {
     if (currentRoomId !== rid) return;
     wsReconnectTimer = setTimeout(() => {
@@ -881,10 +895,11 @@ function subscribeRoom(roomId) {
       const ws = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
       roomSocket = ws;
       subscribeWhenOpen(ws, { type: 'subscribe', roomId: rid });
-      if (gameStarted && gameMultiplayer) enableMultiplayer(ws, rid);
+      if (gameSpectating) enableSpectator(ws, rid);
+      else if (gameStarted && gameMultiplayer) enableMultiplayer(ws, rid);
     }, 1000);
   });
-  startLobbyPoll(rid);
+  if (!spectate) startLobbyPoll(rid);
 }
 
 function exitBoardLobby() {

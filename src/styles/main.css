@@ -3783,6 +3783,12 @@ body.game-active #hudLeft .portfolio-list{
 }
 .chat-msg--out{align-self:flex-end;flex-direction:row-reverse;max-width:85%}
 .chat-msg--in{align-self:flex-start;max-width:90%}
+.chat-msg--spectator .chat-msg__text{
+  background:rgba(251,146,60,.12);
+  border:1px solid rgba(251,146,60,.28);
+  border-left:3px solid #FB923C;
+}
+.chat-msg--spectator .chat-msg__author{color:rgba(251,146,60,.85)}
 @keyframes chat-msg-in{
   from{opacity:0;transform:translateY(4px)}
   to{opacity:1;transform:none}

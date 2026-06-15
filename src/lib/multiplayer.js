@@ -10,7 +10,10 @@ let lastRemoteSeq = 0;
 let exportStateFn = null;
 let importStateFn = null;
 let onDiceRollFn = null;
+let onGameLogFn = null;
+let onPlayerMoveFn = null;
 let lastDiceSeq = 0;
+let lastMoveSeq = 0;
 
 export function registerStateSync(exporter) {
   exportStateFn = exporter;
@@ -22,6 +25,14 @@ export function registerStateImporter(importer) {
 
 export function registerDiceRollHandler(handler) {
   onDiceRollFn = handler;
+}
+
+export function registerGameLogHandler(handler) {
+  onGameLogFn = handler;
+}
+
+export function registerPlayerMoveHandler(handler) {
+  onPlayerMoveFn = handler;
 }
 
 export function isMpGame() {
@@ -68,6 +79,7 @@ export function detachMultiplayer() {
   broadcastTimer = null;
   lastRemoteSeq = 0;
   lastDiceSeq = 0;
+  lastMoveSeq = 0;
 }
 
 export function applyGameState(state) {
@@ -90,12 +102,58 @@ export function broadcastDiceRoll(d1, d2, rollerName, rollerUserId, startAt) {
   }));
 }
 
+export function broadcastGameLog(html, color, meta = {}) {
+  if (spectatorMode || !mpGame || !roomId || !socket || socket.readyState !== WebSocket.OPEN) return;
+  const seq = Date.now();
+  socket.send(JSON.stringify({
+    type: 'game_log',
+    roomId,
+    html,
+    color: color || '#fff',
+    meta,
+    seq,
+  }));
+}
+
+export function broadcastPlayerMove(userId, steps, startAt) {
+  if (spectatorMode || !mpGame || !roomId || !socket || socket.readyState !== WebSocket.OPEN) return;
+  const seq = Date.now();
+  lastMoveSeq = seq;
+  socket.send(JSON.stringify({
+    type: 'player_move',
+    roomId,
+    userId,
+    steps,
+    startAt: startAt || Date.now(),
+    seq,
+  }));
+}
+
 export function handleDiceRollMessage(msg) {
   if (msg.type !== 'dice_roll') return false;
   const seq = +(msg.seq || 0);
   if (seq && seq <= lastDiceSeq) return true;
   if (seq) lastDiceSeq = seq;
   onDiceRollFn?.(msg);
+  return true;
+}
+
+export function handleGameLogMessage(msg) {
+  if (msg.type === 'game_log_history' && Array.isArray(msg.entries)) {
+    onGameLogFn?.({ type: 'history', entries: msg.entries });
+    return true;
+  }
+  if (msg.type !== 'game_log' || !msg.entry) return false;
+  onGameLogFn?.({ type: 'entry', entry: msg.entry });
+  return true;
+}
+
+export function handlePlayerMoveMessage(msg) {
+  if (msg.type !== 'player_move') return false;
+  const seq = +(msg.seq || 0);
+  if (seq && seq <= lastMoveSeq) return true;
+  if (seq) lastMoveSeq = seq;
+  onPlayerMoveFn?.(msg);
   return true;
 }
 

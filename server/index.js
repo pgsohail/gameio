@@ -580,6 +580,7 @@ function broadcastRoom(roomId) {
 
 const LOBBY_CHAT_MAX = 120;
 const LOBBY_CHAT_COOLDOWN_MS = 100;
+const GAME_LOG_MAX = 200;
 const lobbyChatCooldown = new Map();
 
 function sanitizeLobbyChatText(text) {
@@ -605,6 +606,15 @@ function isRoomChatter(room, userId) {
     return true;
   }
   return false;
+}
+
+function isSpectatorChatter(room, userId) {
+  if (!room || !userId || room.status !== 'playing') return false;
+  return !isRoomChatter(room, userId);
+}
+
+function isRoomSubscriber(roomId, ws) {
+  return roomSubs.get(roomId)?.has(ws);
 }
 
 function chatterProfile(room, userId, ws) {
@@ -653,6 +663,39 @@ function sendLobbyChatHistory(ws, room) {
   }));
 }
 
+function sanitizeGameLogHtml(html) {
+  if (typeof html !== 'string') return '';
+  return html.slice(0, 480)
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/on\w+=/gi, '');
+}
+
+function pushGameLog(room, entry) {
+  room.gameLog = room.gameLog || [];
+  room.gameLog.push(entry);
+  if (room.gameLog.length > GAME_LOG_MAX) {
+    room.gameLog = room.gameLog.slice(-GAME_LOG_MAX);
+  }
+}
+
+function sendGameLogHistory(ws, room) {
+  if (!room?.gameLog?.length) return;
+  ws.send(JSON.stringify({
+    type: 'game_log_history',
+    roomId: room.id,
+    entries: room.gameLog,
+  }));
+}
+
+function broadcastRoomEvent(roomId, payload, fromWs = null) {
+  const subs = roomSubs.get(roomId);
+  if (!subs) return;
+  const data = JSON.stringify(payload);
+  for (const ws of subs) {
+    if (ws.readyState === 1 && ws !== fromWs) ws.send(data);
+  }
+}
+
 function handleLobbyChatMessage(ws, msg) {
   const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
   const room = rooms.get(rid);
@@ -680,6 +723,72 @@ function handleLobbyChatMessage(ws, msg) {
   };
   pushLobbyChat(room, entry);
   broadcastLobbyChat(rid, { type: 'lobby_chat', roomId: rid, message: entry });
+}
+
+function handleSpectatorChatMessage(ws, msg) {
+  const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
+  const room = rooms.get(rid);
+  if (!room || room.status !== 'playing' || !isSpectatorChatter(room, ws.userId)) return;
+  if (!isRoomSubscriber(rid, ws)) return;
+
+  const now = Date.now();
+  const last = lobbyChatCooldown.get(ws.userId) || 0;
+  if (now - last < LOBBY_CHAT_COOLDOWN_MS) return;
+
+  const text = sanitizeLobbyChatText(msg.text);
+  if (!text) return;
+
+  lobbyChatCooldown.set(ws.userId, now);
+  const entry = {
+    id: `sp-${now}-${String(ws.userId).slice(0, 8)}`,
+    userId: ws.userId,
+    name: ws.user?.name || 'Spectator',
+    emoji: '👁',
+    color: '#FB923C',
+    text,
+    at: now,
+    spectator: true,
+  };
+  pushLobbyChat(room, entry);
+  broadcastLobbyChat(rid, { type: 'spectator_chat', roomId: rid, message: entry });
+}
+
+function handleGameLogMessage(ws, msg) {
+  const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
+  const room = rooms.get(rid);
+  if (!room || room.status !== 'playing' || !isRoomChatter(room, ws.userId)) return;
+
+  const html = sanitizeGameLogHtml(msg.html);
+  if (!html) return;
+
+  const entry = {
+    id: `gl-${msg.seq || Date.now()}-${String(ws.userId).slice(0, 8)}`,
+    html,
+    color: typeof msg.color === 'string' ? msg.color.slice(0, 24) : '#fff',
+    meta: msg.meta && typeof msg.meta === 'object' ? { tradeId: msg.meta.tradeId, kind: msg.meta.kind } : {},
+    at: Date.now(),
+    userId: ws.userId,
+  };
+  pushGameLog(room, entry);
+  broadcastRoomEvent(rid, { type: 'game_log', roomId: rid, entry }, ws);
+}
+
+function handlePlayerMoveMessage(ws, msg) {
+  const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
+  const room = rooms.get(rid);
+  if (!room || room.status !== 'playing' || !isRoomChatter(room, ws.userId)) return;
+
+  const steps = +msg.steps;
+  if (!steps || Math.abs(steps) > 40) return;
+
+  broadcastRoomEvent(rid, {
+    type: 'player_move',
+    roomId: rid,
+    userId: msg.userId || ws.userId,
+    steps,
+    startAt: +(msg.startAt || Date.now()),
+    seq: msg.seq || Date.now(),
+  }, ws);
 }
 
 function broadcastDiceRoll(roomId, msg) {
@@ -1066,6 +1175,7 @@ app.post('/api/rooms/:id/rematch', authMiddleware, (req, res) => {
   }
   room.status = 'lobby';
   delete room.gameState;
+  delete room.gameLog;
   delete room.players;
   delete room.absent;
   delete room.kicked;
@@ -1139,6 +1249,7 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
 
   room.status = 'playing';
   room.updatedAt = Date.now();
+  room.gameLog = [];
 
   room.players = players;
   room.adminId = finalAdminId;
@@ -1239,6 +1350,7 @@ wss.on('connection', (ws, req) => {
         clearAbsent(room, ws.userId);
         ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room, ws.userId) }));
         sendLobbyChatHistory(ws, room);
+        sendGameLogHistory(ws, room);
         if (room.status === 'playing' && room.players) {
           ws.send(JSON.stringify({
             type: 'game_start',
@@ -1261,6 +1373,18 @@ wss.on('connection', (ws, req) => {
     }
     if (msg.type === 'lobby_chat' && msg.roomId) {
       handleLobbyChatMessage(ws, msg);
+      return;
+    }
+    if (msg.type === 'spectator_chat' && msg.roomId) {
+      handleSpectatorChatMessage(ws, msg);
+      return;
+    }
+    if (msg.type === 'game_log' && msg.roomId) {
+      handleGameLogMessage(ws, msg);
+      return;
+    }
+    if (msg.type === 'player_move' && msg.roomId) {
+      handlePlayerMoveMessage(ws, msg);
       return;
     }
     if (msg.type === 'dice_roll' && msg.roomId) {
