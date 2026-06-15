@@ -74,7 +74,29 @@ const SALARY_HINTS = {
 };
 
 function formatRoomCode(id) {
-  return String(id || '').toUpperCase();
+  const code = String(id || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6).toUpperCase();
+  if (!code) return '------';
+  if (code.length <= 3) return code;
+  return `${code.slice(0, 3)}·${code.slice(3)}`;
+}
+
+function roomCodeMarkup(id, { mini = false, compact = false } = {}) {
+  const raw = String(id || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6).toUpperCase();
+  if (!raw) {
+    return '<span class="room-code room-code--empty">------</span>';
+  }
+  const a = raw.slice(0, 3);
+  const b = raw.slice(3);
+  const cls = `room-code${mini ? ' room-code--mini' : ''}${compact ? ' room-code--compact' : ''}`;
+  const tail = b
+    ? `<span class="room-code__dot">·</span><span class="room-code__seg">${esc(b)}</span>`
+    : '';
+  return `<span class="${cls}"><span class="room-code__hash">#</span><span class="room-code__seg">${esc(a)}</span>${tail}</span>`;
+}
+
+function setRoomCodeEl(el, id, opts) {
+  if (!el) return;
+  el.innerHTML = roomCodeMarkup(id, opts);
 }
 
 function esc(s) {
@@ -170,6 +192,7 @@ function renderAuthBar() {
 
 let lobbyChatMessages = [];
 let lobbyChatMuted = false;
+let chatCollapsed = false;
 let lobbyCanSendChat = false;
 let myChatProfile = { name: '', emoji: '🚂', color: '#3D5AFE' };
 
@@ -230,24 +253,35 @@ function syncLobbyChatCompose(canSend) {
   if (send) send.disabled = !lobbyCanSendChat;
 }
 
+function refreshRoomChatAccess({ inRoom = false } = {}) {
+  if (gameSpectating) {
+    syncLobbyChatCompose(false);
+    return;
+  }
+  const canSend = !gameSpectating && (!!inRoom || (gameStarted && !!currentRoomId));
+  syncLobbyChatCompose(canSend);
+}
+
 function showRoomChat(mode = 'lobby') {
   const dock = $('roomChatDock');
   if (!dock) return;
   dock.classList.remove('hidden', 'room-chat-dock--lobby', 'room-chat-dock--game');
   dock.classList.add(mode === 'game' ? 'room-chat-dock--game' : 'room-chat-dock--lobby');
+  dock.classList.toggle('room-chat-dock--collapsed', chatCollapsed && mode === 'game');
 }
 
 function hideRoomChat() {
   $('roomChatDock')?.classList.add('hidden');
 }
 
-function refreshRoomChatAccess({ inRoom = false } = {}) {
-  if (gameSpectating) {
-    syncLobbyChatCompose(false);
-    return;
+function toggleChatCollapsed() {
+  chatCollapsed = !chatCollapsed;
+  $('roomChatDock')?.classList.toggle('room-chat-dock--collapsed', chatCollapsed);
+  const btn = $('lobbyChatCollapse');
+  if (btn) {
+    btn.title = chatCollapsed ? 'Expand chat' : 'Minimize chat';
+    btn.setAttribute('aria-label', chatCollapsed ? 'Expand chat' : 'Minimize chat');
   }
-  const canSend = !!inRoom || (gameStarted && gameMultiplayer && !!currentRoomId);
-  syncLobbyChatCompose(canSend);
 }
 
 function renderLobbyChatFeed(scrollToEnd = false) {
@@ -450,7 +484,7 @@ async function renderRoomList() {
       return `
       <button type="button" class="room-card room-card--join room-card--compact${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
         <div class="room-card__head">
-          <span class="room-card__code">${esc(formatRoomCode(r.id))}${botHost ? '<span class="room-card__code-tag">Bot</span>' : ''}</span>
+          <span class="room-card__code">${roomCodeMarkup(r.id, { mini: true })}${botHost ? '<span class="room-card__code-tag">Bot</span>' : ''}</span>
           <span class="room-card__sub">🗺 ${esc(boardLabel(r.rules?.per))} · ${filled}/${total} · ${open} open · ${fmt(cash)}</span>
         </div>
         <span class="room-card__join-pill">Join</span>
@@ -490,7 +524,7 @@ function renderSpectateList(rooms = [], live = {}) {
     return `
       <button type="button" class="room-card room-card--spectate" data-spectate="${esc(r.id)}">
         <div class="room-card__left">
-          <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
+          <span class="room-card__id">${roomCodeMarkup(r.id)}</span>
           <span class="room-card__meta room-card__meta--live">🔴 LIVE · ${alive} playing</span>
           <div class="room-card__slots room-card__slots--preview">${preview}</div>
         </div>
@@ -690,6 +724,7 @@ function startFromPayload(payload) {
   const adminId = payload.adminId ?? 0;
   const humanCount = payload.players.filter(p => !p.bot).length;
   const isMp = humanCount > 1;
+  const inRoomSession = payload.players.length > 1;
   gameStarted = true;
   gameMultiplayer = isMp;
   const players = payload.players.map((p, i) => ({
@@ -706,7 +741,7 @@ function startFromPayload(payload) {
   if (rid) currentRoomId = rid;
   const me = players.find(p => p.userId === u.id);
   if (me) syncMyChatProfile(me);
-  if (isMp) {
+  if (rid && inRoomSession) {
     showRoomChat('game');
     refreshRoomChatAccess({ inRoom: true });
   } else {
@@ -959,7 +994,7 @@ function renderBoardLobby(room) {
 
   playLobbySlotSounds(room);
 
-  $('boardRoomCode').textContent = formatRoomCode(room.id);
+  setRoomCodeEl($('boardRoomCode'), room.id);
   $('boardWaitCount').textContent = `${total} / ${room.maxPlayers} players`;
   $('boardWaitingSlots').innerHTML = slotAvatars(room.slots, room.maxPlayers);
   $('boardPlayerList').innerHTML = room.slots.map((p, i) => {
@@ -1425,7 +1460,7 @@ function resumePausedSession() {
   if (gameStarted) {
     $('hud')?.classList.remove('hidden');
     setGameBrandVisible(true);
-    if (gameMultiplayer) {
+    if (currentRoomId) {
       showRoomChat('game');
       refreshRoomChatAccess({ inRoom: true });
     }
@@ -1556,7 +1591,7 @@ function showRejoinCard(room) {
   card?.classList.add('room-invite-card--rejoin');
   $('roomInviteEyebrow').textContent = 'Your game is waiting';
   const idEl = $('roomInviteId');
-  if (idEl) idEl.textContent = formatRoomCode(room.id);
+  if (idEl) setRoomCodeEl(idEl, room.id, { compact: true });
   $('roomInviteSub').textContent = 'Get back in before time runs out or you\'ll be removed from the match.';
   $('roomInviteTimer')?.classList.remove('hidden');
   const label = $('roomInviteEnter')?.querySelector('.home-play__label');
@@ -1632,7 +1667,7 @@ async function rejoinActiveGame(room) {
 
   subscribeRoom(room.id);
   gameMultiplayer = humans > 1;
-  if (gameMultiplayer) {
+  if (room.players?.length > 1) {
     showRoomChat('game');
     refreshRoomChatAccess({ inRoom: true });
   }
@@ -1689,7 +1724,7 @@ function showInviteCard(id, message, { rejoin = false, disableEnter = false } = 
   $('roomInviteEyebrow').textContent = rejoin ? 'Your game is waiting' : 'Game invite';
   $('roomInviteTimer')?.classList.toggle('hidden', !rejoin);
   const idEl = $('roomInviteId');
-  if (idEl) idEl.textContent = formatRoomCode(id);
+  if (idEl) setRoomCodeEl(idEl, id, { compact: true });
   const sub = $('roomInviteSub');
   if (sub) sub.textContent = message;
   const enterBtn = $('roomInviteEnter');
@@ -1893,6 +1928,15 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     btn?.classList.toggle('is-muted', lobbyChatMuted);
     btn?.querySelector('.chat-panel__mute-on')?.classList.toggle('hidden', lobbyChatMuted);
     btn?.querySelector('.chat-panel__mute-off')?.classList.toggle('hidden', !lobbyChatMuted);
+  });
+  $('lobbyChatCollapse')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleChatCollapsed();
+  });
+  $('lobbyChat')?.addEventListener('click', () => {
+    if (chatCollapsed && $('roomChatDock')?.classList.contains('room-chat-dock--game')) {
+      toggleChatCollapsed();
+    }
   });
   document.addEventListener('wt:player-left-game', onPlayerLeftGame);
   $('roomRefresh')?.addEventListener('click', () => {

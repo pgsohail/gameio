@@ -3606,13 +3606,36 @@ body.spectator-mode #portfolioCard{display:none!important}
   width:min(380px,30vw);min-width:300px;
 }
 .room-chat-dock--game{
-  top:calc(var(--hud-gutter, 14px) + min(200px, 26vh) + var(--hud-gap, 12px));
-  bottom:calc(var(--hud-gutter, 14px) + min(30vh, 260px) + 14px);
+  top:calc(var(--hud-gutter, 14px) + var(--log-panel-h, 200px) + 10px);
   left:var(--hud-gutter, 14px);
-  width:min(400px, 32vw);min-width:300px;
-  min-height:280px;
-  z-index:50;
+  width:min(340px, 30vw);
+  min-width:280px;
+  height:min(300px, 34vh);
+  min-height:220px;
+  bottom:auto;
+  z-index:165;
 }
+.room-chat-dock--game.room-chat-dock--collapsed{
+  top:auto;
+  bottom:calc(var(--hud-gutter, 14px) + 168px);
+  height:auto;
+  min-height:0;
+  width:auto;
+  min-width:0;
+}
+.room-chat-dock--collapsed .chat-panel__body,
+.room-chat-dock--collapsed .chat-panel__footer{display:none}
+.room-chat-dock--collapsed .chat-panel{
+  cursor:pointer;
+  border-radius:999px;
+}
+.room-chat-dock--collapsed .chat-panel__header{
+  border-bottom:none;
+  padding:10px 14px;
+}
+.room-chat-dock--collapsed .chat-panel__collapse svg{transform:rotate(180deg)}
+.room-chat-dock--lobby .chat-panel__collapse{display:none}
+.room-chat-dock--collapsed .chat-panel__title{font-size:12px}
 body.game-active{
   --log-panel-h:min(200px, 26vh);
 }
@@ -3629,27 +3652,47 @@ body.game-active #hudLeft .portfolio-list{
 /* —— Room chat panel —— */
 .chat-panel{
   flex:1;min-height:0;height:100%;display:flex;flex-direction:column;overflow:hidden;
-  border-radius:16px;
-  background:rgba(8,14,20,.9);
-  border:1px solid rgba(94,234,212,.14);
+  border-radius:18px;
+  background:
+    linear-gradient(165deg,rgba(12,22,30,.94),rgba(6,12,18,.97));
+  border:1px solid rgba(94,234,212,.2);
   box-shadow:
-    0 20px 50px rgba(0,0,0,.45),
-    0 0 0 1px rgba(255,255,255,.04) inset;
-  backdrop-filter:blur(28px) saturate(1.2);
+    0 22px 56px rgba(0,0,0,.5),
+    0 0 0 1px rgba(255,255,255,.05) inset,
+    0 0 40px rgba(13,148,136,.06);
+  backdrop-filter:blur(32px) saturate(1.25);
 }
 .room-chat-dock--game .chat-panel{
-  border-color:rgba(94,234,212,.18);
+  border-color:rgba(94,234,212,.26);
   box-shadow:
-    0 24px 56px rgba(0,0,0,.5),
-    0 0 32px rgba(13,148,136,.06);
+    0 24px 60px rgba(0,0,0,.55),
+    0 0 48px rgba(13,148,136,.1),
+    inset 0 1px 0 rgba(255,255,255,.08);
 }
 .chat-panel__header{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:12px 14px;flex-shrink:0;
-  border-bottom:1px solid rgba(255,255,255,.06);
-  background:rgba(255,255,255,.03);
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:11px 12px;flex-shrink:0;
+  border-bottom:1px solid rgba(94,234,212,.1);
+  background:linear-gradient(180deg,rgba(94,234,212,.06),transparent);
 }
-.chat-panel__title-row{display:flex;align-items:center;gap:8px;min-width:0}
+.chat-panel__title-row{display:flex;align-items:center;gap:7px;min-width:0}
+.chat-panel__tools{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.chat-panel__icon-btn{
+  width:30px;height:30px;border-radius:9px;
+  display:grid;place-items:center;cursor:pointer;
+  color:rgba(255,255,255,.55);
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+  transition:background .15s,color .15s,border-color .15s,transform .12s;
+}
+.chat-panel__icon-btn:hover{color:#fff;background:rgba(255,255,255,.1);border-color:rgba(94,234,212,.22)}
+.chat-panel__icon-btn.is-muted{opacity:.45}
+.chat-panel__icon-btn svg{display:block}
+.chat-panel__badge{
+  font-size:9px;font-weight:800;padding:2px 6px;border-radius:999px;
+  color:#042f2e;background:#5EEAD4;line-height:1.2;
+}
+.chat-panel__badge[hidden]{display:none!important}
+.chat-panel__collapse svg{transition:transform .2s ease}
 .chat-panel__pulse{
   width:7px;height:7px;border-radius:50%;flex-shrink:0;
   background:#34d399;box-shadow:0 0 10px rgba(52,211,153,.65);
@@ -3664,7 +3707,7 @@ body.game-active #hudLeft .portfolio-list{
   color:rgba(255,255,255,.88);text-transform:uppercase;
 }
 .chat-panel__mute{
-  width:32px;height:32px;border-radius:10px;flex-shrink:0;
+  width:30px;height:30px;border-radius:9px;flex-shrink:0;
   display:grid;place-items:center;cursor:pointer;
   color:rgba(255,255,255,.55);
   background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
@@ -3772,10 +3815,37 @@ body.game-active #hudLeft .portfolio-list{
   margin-bottom:16px;flex-wrap:wrap;
 }
 .room-modal__code{
-  font-family:ui-monospace,monospace;font-size:13px;font-weight:700;letter-spacing:.04em;
-  color:#5EEAD4;padding:6px 14px;border-radius:999px;
-  background:rgba(0,0,0,.25);border:1px solid rgba(94,234,212,.25);
+  display:inline-flex;align-items:center;padding:0;
+  background:none;border:none;
 }
+.room-modal__code .room-code{font-size:14px}
+/* —— Room codes (#ABC·DEF) —— */
+.room-code{
+  display:inline-flex;align-items:center;gap:3px;
+  padding:4px 9px 4px 7px;border-radius:8px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:800;letter-spacing:.06em;line-height:1;
+  color:#a7f3d0;
+  background:linear-gradient(145deg,rgba(13,148,136,.22),rgba(6,24,28,.45));
+  border:1px solid rgba(94,234,212,.28);
+  box-shadow:0 2px 10px rgba(13,148,136,.15),inset 0 1px 0 rgba(255,255,255,.08);
+}
+.room-code--mini{
+  padding:3px 7px 3px 5px;font-size:10px;border-radius:6px;gap:2px;
+}
+.room-code--compact{font-size:11px;padding:3px 8px 3px 6px}
+.room-code--empty{color:rgba(255,255,255,.35);border-style:dashed}
+.room-code__hash{
+  font-size:.78em;font-weight:900;color:rgba(94,234,212,.65);
+  margin-right:1px;
+}
+.room-code__seg{color:#ecfdf5}
+.room-code__dot{
+  color:rgba(94,234,212,.45);font-weight:900;padding:0 1px;font-size:.9em;
+}
+.room-card__code .room-code{vertical-align:middle}
+.room-card__id .room-code{font-size:12px}
+.room-invite-card__title .room-code{font-size:12px;vertical-align:middle}
 .room-modal__status{
   font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   color:rgba(255,255,255,.45);
@@ -4060,7 +4130,7 @@ body.game-active #hudLeft .portfolio-list{
 }
 .room-card--compact:hover{background:rgba(255,255,255,.08)}
 .room-card--compact .room-card__head{gap:1px;min-width:0}
-.room-card--compact .room-card__code{font-size:11px;letter-spacing:.07em}
+.room-card--compact .room-card__code .room-code{font-size:9px;padding:2px 5px}
 .room-card--compact .room-card__code-tag{
   margin-left:4px;padding:1px 4px;font-size:6px;
 }
@@ -4078,13 +4148,12 @@ body.game-active #hudLeft .portfolio-list{
   border-color:rgba(94,234,212,.28);
 }
 .room-card--join .room-card__head{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
-.room-card--join .room-card__players{margin-top:2px}
 .room-card--bot-host{border-color:rgba(248,113,113,.22)}
 .room-card--bot-host:hover{border-color:rgba(248,113,113,.38)}
 .room-card__code{
-  font-size:15px;font-weight:800;letter-spacing:.1em;color:#fff;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;
 }
+.room-card__code .room-code{flex-shrink:0}
 .room-card__code-tag{
   display:inline-block;margin-left:8px;padding:2px 7px;border-radius:999px;
   font-size:8px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;vertical-align:middle;
@@ -4437,10 +4506,13 @@ body.game-active #hudLeft .portfolio-list{
     bottom:72px;max-height:min(44vh,360px);
   }
   .room-chat-dock--game{
-    top:calc(var(--hud-gutter, 14px) + min(160px, 22vh) + var(--hud-gap, 12px));
-    bottom:calc(var(--hud-gutter, 14px) + min(26vh, 220px) + 12px);
-    left:var(--hud-gutter, 14px);right:var(--hud-gutter, 14px);
-    width:auto;min-width:0;min-height:240px;
+    top:calc(var(--hud-gutter, 14px) + min(180px, 24vh) + 8px);
+    width:auto;left:12px;right:12px;min-width:0;
+    height:min(260px, 32vh);
+  }
+  .room-chat-dock--game.room-chat-dock--collapsed{
+    bottom:calc(var(--hud-gutter, 14px) + 140px);
+    left:12px;right:auto;
   }
   .room-lobby__center{order:2;min-height:220px}
   .room-lobby__side--right{order:3;max-height:none}
