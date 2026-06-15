@@ -218,13 +218,13 @@ function appendLobbyChatMessage(msg, { silent = false } = {}) {
 function syncLobbyChatCompose(canSend) {
   lobbyCanSendChat = !!canSend && !gameSpectating;
   const input = $('lobbyChatInput');
-  const send = $('lobbyChatForm')?.querySelector('.lobby-chat__send');
+  const send = $('lobbyChatForm')?.querySelector('.chat-panel__send');
   if (input) {
     input.disabled = !lobbyCanSendChat;
     if (gameSpectating) {
-      input.placeholder = 'Spectators can read chat only…';
+      input.placeholder = 'Spectators can read only…';
     } else {
-      input.placeholder = canSend ? 'Say something…' : 'Join the game to chat…';
+      input.placeholder = canSend ? 'Type a message…' : 'Join the room to chat…';
     }
   }
   if (send) send.disabled = !lobbyCanSendChat;
@@ -256,7 +256,7 @@ function renderLobbyChatFeed(scrollToEnd = false) {
   const u = getUser();
 
   if (!lobbyChatMessages.length) {
-    feed.innerHTML = '<p class="lobby-chat__empty">Say hi — chat stays open during the game.</p>';
+    feed.innerHTML = '<p class="chat-panel__empty">No messages yet — say hi to the room.</p>';
     return;
   }
 
@@ -267,13 +267,13 @@ function renderLobbyChatFeed(scrollToEnd = false) {
     const showName = !mine && m.userId !== prevUserId;
     prevUserId = m.userId;
     html += `
-      <div class="lobby-chat__row ${mine ? 'lobby-chat__row--mine' : 'lobby-chat__row--theirs'}">
-        ${mine ? '' : `<span class="lobby-chat__av" style="--lc:${esc(m.color || '#888')}">${esc(m.emoji || '🚂')}</span>`}
-        <div class="lobby-chat__bubble-wrap">
-          ${showName ? `<span class="lobby-chat__name">${esc(m.name || 'Player')}</span>` : ''}
-          <div class="lobby-chat__bubble${m.pending ? ' lobby-chat__bubble--pending' : ''}">${esc(m.text)}</div>
+      <article class="chat-msg ${mine ? 'chat-msg--out' : 'chat-msg--in'}">
+        ${mine ? '' : `<span class="chat-msg__avatar" style="--mc:${esc(m.color || '#888')}">${esc(m.emoji || '🚂')}</span>`}
+        <div class="chat-msg__body">
+          ${showName ? `<span class="chat-msg__author">${esc(m.name || 'Player')}</span>` : ''}
+          <p class="chat-msg__text${m.pending ? ' chat-msg__text--pending' : ''}">${esc(m.text)}</p>
         </div>
-      </div>`;
+      </article>`;
   }
 
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 48;
@@ -482,7 +482,6 @@ function renderSpectateList(rooms = [], live = {}) {
     return;
   }
   list.innerHTML = liveGames.map(r => {
-    const humans = r.humans ?? 0;
     const alive = r.alivePlayers ?? r.players?.length ?? 0;
     const preview = (r.players || []).slice(0, 5).map(p =>
       `<span class="room-card__av" style="--pc:${esc(p.color || '#888')}" title="${esc(p.name)}">${esc(p.emoji || '🚂')}</span>`,
@@ -491,7 +490,7 @@ function renderSpectateList(rooms = [], live = {}) {
       <button type="button" class="room-card room-card--spectate" data-spectate="${esc(r.id)}">
         <div class="room-card__left">
           <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
-          <span class="room-card__meta room-card__meta--live">🔴 LIVE · ${humans} human${humans === 1 ? '' : 's'} · ${alive} in game</span>
+          <span class="room-card__meta room-card__meta--live">🔴 LIVE · ${alive} playing</span>
           <div class="room-card__slots room-card__slots--preview">${preview}</div>
         </div>
         <div class="room-card__right">
@@ -960,7 +959,7 @@ function renderBoardLobby(room) {
   playLobbySlotSounds(room);
 
   $('boardRoomCode').textContent = formatRoomCode(room.id);
-  $('boardWaitCount').textContent = `${humans} human${humans === 1 ? '' : 's'} · ${total}/${room.maxPlayers}`;
+  $('boardWaitCount').textContent = `${total} / ${room.maxPlayers} players`;
   $('boardWaitingSlots').innerHTML = slotAvatars(room.slots, room.maxPlayers);
   $('boardPlayerList').innerHTML = room.slots.map((p, i) => {
     if (!p) return '';
@@ -994,11 +993,11 @@ function renderBoardLobby(room) {
     launchHint?.classList.toggle('hidden', canLaunch);
     if (launchHint && !canLaunch) {
       if (humans < minHumans) {
-        launchHint.textContent = 'Need at least 1 human player in the room.';
+        launchHint.textContent = 'Need at least 1 player in the room.';
       } else if (total < 2) {
         launchHint.textContent = 'Need at least 2 players to start.';
       } else if (!allowBots && humans < 2 && humanoids < 1) {
-        launchHint.textContent = 'Need another human, a traveler, or enable Fill with bots.';
+        launchHint.textContent = 'Need another player, a guest, or enable Fill with bots.';
       } else {
         launchHint.textContent = `Ready — ${total} player${total === 1 ? '' : 's'} (${room.maxPlayers} max). Empty seats stay open.`;
       }
@@ -1891,7 +1890,8 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     lobbyChatMuted = !lobbyChatMuted;
     const btn = $('lobbyChatMute');
     btn?.classList.toggle('is-muted', lobbyChatMuted);
-    if (btn) btn.textContent = lobbyChatMuted ? '🔇' : '🔊';
+    btn?.querySelector('.chat-panel__mute-on')?.classList.toggle('hidden', lobbyChatMuted);
+    btn?.querySelector('.chat-panel__mute-off')?.classList.toggle('hidden', !lobbyChatMuted);
   });
   document.addEventListener('wt:player-left-game', onPlayerLeftGame);
   $('roomRefresh')?.addEventListener('click', () => {

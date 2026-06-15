@@ -1071,10 +1071,10 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Need at least 2 players to start.' });
   }
   if (humans < 1) {
-    return res.status(400).json({ error: 'Need at least 1 human player.' });
+    return res.status(400).json({ error: 'Need at least 1 player in the room.' });
   }
   if (!room.rules?.allowBots && humans < 2 && humanoids === 0) {
-    return res.status(400).json({ error: 'Need 2 humans, a traveler, or enable Fill with bots.' });
+    return res.status(400).json({ error: 'Need 2 players, a guest, or enable Fill with bots.' });
   }
 
   const players = seated.map(slot => ({
