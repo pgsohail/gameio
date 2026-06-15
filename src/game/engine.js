@@ -940,19 +940,63 @@ function renderPlayers(){
   }).join('');
   wrap.innerHTML=`<div class="hud-card-head"><span class="hud-card-icon" aria-hidden="true">👥</span><h4 class="players-title">Travelers</h4></div><div class="players-list">${rows}</div>`;
 }
-function portfolioBuildBadge(p,t){
-  if(t.type==='air')return'<span class="portfolio-tag">✈</span>';
-  if(t.type==='utl')return'<span class="portfolio-tag">⚡</span>';
-  if(t.mortgaged)return'<span class="portfolio-tag portfolio-tag--lock">🔒</span>';
-  const houses=t.houses||0;
-  if(houses>=5)return'<span class="portfolio-tag portfolio-tag--hotel">🏨</span>';
-  const canBuild=t.type==='city'&&ownsGroup(p,t.group);
-  const houseTag=houses>0?`<span class="portfolio-tag portfolio-tag--houses">${houses}🏠</span>`:'';
-  if(canBuild){
-    const ok=p.cash>=t.houseCost;
-    return`${houseTag}<span class="portfolio-tag portfolio-tag--build${ok?'':' portfolio-tag--short'}">🏗 ${fmt(t.houseCost)}</span>`;
+function portfolioRowStatus(p, t) {
+  if (t.mortgaged) return 'Mortgaged';
+  if (t.type === 'air' || t.type === 'utl') return 'Owned';
+  if (t.houses >= 5) return 'Hotel';
+  if (t.houses > 0) return `${t.houses} house${t.houses > 1 ? 's' : ''}`;
+  if (t.type === 'city' && ownsGroup(p, t.group)) return 'Monopoly';
+  return 'Land';
+}
+
+function portfolioRowHTML(p, t) {
+  const icon = t.type === 'city' ? (GROUPS[t.group]?.flag || '🏙️') : tileIcon(t);
+  const mort = t.mortgaged ? ' portfolio-row--mort' : '';
+  return `<button type="button" class="portfolio-row${mort}" data-idx="${t.idx}">
+    <span class="portfolio-row__icon">${icon}</span>
+    <span class="portfolio-row__name">${tradeEsc(t.name)}</span>
+    <span class="portfolio-row__status">${portfolioRowStatus(p, t)}</span>
+  </button>`;
+}
+
+function renderPortfolioCard(){
+  const card=$('portfolioCard');
+  if(!card)return;
+  const p=localHumanPlayer();
+  const show=!!p&&!S.over;
+  card.classList.toggle('hidden',!show);
+  if(!show)return;
+  const summary=$('portfolioSummary');
+  const list=$('portfolioList');
+  const tiles=ownedBy(p).slice().sort((a,b)=>{
+    const ga=a.group||'z',gb=b.group||'z';
+    if(ga!==gb)return ga.localeCompare(gb);
+    return a.name.localeCompare(b.name);
+  });
+  const n=tiles.length;
+  if(summary)summary.textContent=n
+    ?`${n} propert${n===1?'y':'ies'} · ${fmt(p.cash)} cash · ${fmt(netWorth(p))} total`
+    :`${fmt(p.cash)} cash — buy tiles as you land on them`;
+  if(!list)return;
+  if(!n){
+    list.innerHTML='<p class="portfolio-empty">You don’t own anything yet. Land on a city and tap Buy.</p>';
+    return;
   }
-  return houseTag;
+  const cityGroups=[...new Set(tiles.map(t=>t.group).filter(g=>g&&String(g).startsWith('g')))];
+  const setChips=cityGroups.map(gid=>{
+    const grp=GROUPS[gid]||{name:'Set',flag:'🌐'};
+    const all=groupTiles(gid);
+    const mine=all.filter(t=>t.owner===p.id).length;
+    const total=all.length;
+    if(mine>=total)return `<span class="portfolio-set portfolio-set--done">${grp.flag||''} ${tradeEsc(grp.name)} — complete</span>`;
+    const need=total-mine;
+    return `<span class="portfolio-set">${grp.flag||''} ${tradeEsc(grp.name)} ${mine}/${total} · need ${need} more</span>`;
+  }).join('');
+  list.innerHTML=`${setChips?`<div class="portfolio-sets">${setChips}</div>`:''}
+    <div class="portfolio-rows">${tiles.map(t=>portfolioRowHTML(p,t)).join('')}</div>`;
+  list.querySelectorAll('.portfolio-row').forEach(el=>{
+    el.onclick=()=>openPropDetail(+el.dataset.idx);
+  });
 }
 function renderPowerHudCard(){
   const card=$('powerHudCard');
@@ -992,58 +1036,6 @@ function renderPowerHudCard(){
     }).join('');
     others.innerHTML=rows||'<p class="power-hud-empty power-hud-empty--dim">No rivals holding power cards.</p>';
   }
-}
-function renderPortfolioCard(){
-  const card=$('portfolioCard');
-  if(!card)return;
-  const p=localHumanPlayer();
-  const show=!!p&&!S.over;
-  card.classList.toggle('hidden',!show);
-  if(!show)return;
-  const countEl=$('portfolioOwned');
-  const netEl=$('portfolioNet');
-  const cashEl=$('portfolioCash');
-  const list=$('portfolioList');
-  const tiles=ownedBy(p);
-  const n=tiles.length;
-  if(countEl)countEl.textContent=n?`${n} owned`:'None yet';
-  if(netEl)netEl.textContent=fmt(netWorth(p));
-  if(cashEl)cashEl.textContent=fmt(p.cash);
-  if(!list)return;
-  if(!n){
-    list.innerHTML='<p class="portfolio-empty">Roll and buy cities to build your empire.</p>';
-    return;
-  }
-  const groupIds=[...new Set(tiles.map(t=>t.group).filter(Boolean))].sort();
-  list.innerHTML=groupIds.map(gid=>{
-    const grp=GROUPS[gid]||{name:'Set',flag:'🌐'};
-    const all=groupTiles(gid);
-    const mine=all.filter(t=>t.owner===p.id);
-    const need=all.length-mine.length;
-    const mono=ownsGroup(p,gid);
-    const rivals=all.filter(t=>t.owner!=null&&t.owner!==p.id).map(t=>{
-      const o=S.players[t.owner];
-      return o?`<span class="portfolio-rival" title="${tradeEsc(o.name)} · ${tradeEsc(t.name)}">${o.emoji}</span>`:'';
-    }).join('');
-    const open=all.filter(t=>t.owner==null).length;
-    return `<section class="portfolio-group${mono?' portfolio-group--mono':''}">
-      <div class="portfolio-group__head">
-        <span class="portfolio-group__name">${grp.flag||''} ${tradeEsc(grp.name)}</span>
-        <span class="portfolio-group__prog">${mine.length}/${all.length}${mono?' ✓':need?` · ${need} to monopoly`:''}</span>
-      </div>
-      ${rivals||open?`<p class="portfolio-group__meta">${rivals?`Held: ${rivals}`:''}${open?`${rivals?' · ':''}${open} open`:''}</p>`:''}
-      <ul class="portfolio-group__list">${mine.map(t=>{
-        const build=portfolioBuildBadge(p,t);
-        const label=t.name.length>22?t.name.slice(0,21)+'…':t.name;
-        return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" data-idx="${t.idx}" role="button" tabindex="0">
-          <span class="portfolio-item__name">${label}</span>${build?`<span class="portfolio-item__meta">${build}</span>`:''}
-        </li>`;
-      }).join('')}</ul>
-    </section>`;
-  }).join('');
-  list.querySelectorAll('.portfolio-item').forEach(el=>{
-    el.onclick=()=>openPropDetail(+el.dataset.idx);
-  });
 }
 function aliveHumans(){
   return S.players.filter(p=>!p.dead&&!p.bot);

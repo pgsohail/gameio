@@ -200,8 +200,110 @@ function renderAuthBar() {
 let lobbyChatMessages = [];
 let lobbyChatMuted = false;
 let chatCollapsed = false;
+let chatHidden = false;
 let lobbyCanSendChat = false;
 let myChatProfile = { name: '', emoji: '🚂', color: '#3D5AFE' };
+let chatDragState = null;
+
+function syncGameHudLayout() {
+  const active = document.body.classList.contains('game-active');
+  document.body.classList.toggle('game-chat-hidden', active && chatHidden);
+  document.body.classList.toggle('game-chat-collapsed', active && chatCollapsed && !chatHidden);
+}
+
+function applyChatDockState() {
+  const dock = $('roomChatDock');
+  if (!dock) return;
+  dock.classList.toggle('room-chat-dock--hidden', chatHidden);
+  dock.classList.toggle('room-chat-dock--collapsed', chatCollapsed && !chatHidden);
+  $('chatRestoreBtn')?.classList.toggle('hidden', !chatHidden || dock.classList.contains('hidden'));
+  syncGameHudLayout();
+  const collapseBtn = $('lobbyChatCollapse');
+  if (collapseBtn) {
+    collapseBtn.title = chatCollapsed ? 'Expand chat' : 'Minimize chat';
+    collapseBtn.setAttribute('aria-label', chatCollapsed ? 'Expand chat' : 'Minimize chat');
+  }
+}
+
+function restoreChatDockPosition() {
+  const dock = $('roomChatDock');
+  if (!dock) return;
+  try {
+    const raw = localStorage.getItem('wt_chat_pos');
+    if (!raw) return;
+    const pos = JSON.parse(raw);
+    if (!pos?.left || !pos?.top) return;
+    dock.classList.add('room-chat-dock--floating');
+    dock.style.left = pos.left;
+    dock.style.top = pos.top;
+    dock.style.right = 'auto';
+    dock.style.bottom = 'auto';
+    if (pos.width) dock.style.width = pos.width;
+  } catch { /* ignore */ }
+}
+
+function resetChatDockPosition() {
+  const dock = $('roomChatDock');
+  if (!dock) return;
+  dock.classList.remove('room-chat-dock--floating');
+  dock.style.left = '';
+  dock.style.top = '';
+  dock.style.right = '';
+  dock.style.bottom = '';
+  dock.style.width = '';
+  try { localStorage.removeItem('wt_chat_pos'); } catch { /* ignore */ }
+}
+
+function initChatDockDrag() {
+  const dock = $('roomChatDock');
+  const header = $('lobbyChatHeader');
+  if (!dock || !header || header.dataset.dragBound) return;
+  header.dataset.dragBound = '1';
+
+  header.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    if (!dock.classList.contains('room-chat-dock--game') || chatHidden) return;
+    const rect = dock.getBoundingClientRect();
+    chatDragState = {
+      dock,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      width: rect.width,
+    };
+    dock.classList.add('room-chat-dock--floating', 'room-chat-dock--dragging');
+    dock.style.left = `${rect.left}px`;
+    dock.style.top = `${rect.top}px`;
+    dock.style.right = 'auto';
+    dock.style.bottom = 'auto';
+    dock.style.width = `${rect.width}px`;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!chatDragState) return;
+    const { dock, startX, startY, origLeft, origTop, width } = chatDragState;
+    const left = Math.min(Math.max(8, origLeft + e.clientX - startX), window.innerWidth - width - 8);
+    const top = Math.min(Math.max(52, origTop + e.clientY - startY), window.innerHeight - 80);
+    dock.style.left = `${left}px`;
+    dock.style.top = `${top}px`;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!chatDragState) return;
+    const { dock } = chatDragState;
+    dock.classList.remove('room-chat-dock--dragging');
+    try {
+      localStorage.setItem('wt_chat_pos', JSON.stringify({
+        left: dock.style.left,
+        top: dock.style.top,
+        width: dock.style.width,
+      }));
+    } catch { /* ignore */ }
+    chatDragState = null;
+  });
+}
 
 function syncMyChatProfile(profile) {
   if (!profile) return;
@@ -278,21 +380,27 @@ function showRoomChat(mode = 'lobby') {
   if (!dock) return;
   dock.classList.remove('hidden', 'room-chat-dock--lobby', 'room-chat-dock--game');
   dock.classList.add(mode === 'game' ? 'room-chat-dock--game' : 'room-chat-dock--lobby');
-  dock.classList.toggle('room-chat-dock--collapsed', chatCollapsed && mode === 'game');
+  if (mode === 'game') restoreChatDockPosition();
+  else resetChatDockPosition();
+  applyChatDockState();
 }
 
 function hideRoomChat() {
   $('roomChatDock')?.classList.add('hidden');
+  $('chatRestoreBtn')?.classList.add('hidden');
+  syncGameHudLayout();
 }
 
 function toggleChatCollapsed() {
   chatCollapsed = !chatCollapsed;
-  $('roomChatDock')?.classList.toggle('room-chat-dock--collapsed', chatCollapsed);
-  const btn = $('lobbyChatCollapse');
-  if (btn) {
-    btn.title = chatCollapsed ? 'Expand chat' : 'Minimize chat';
-    btn.setAttribute('aria-label', chatCollapsed ? 'Expand chat' : 'Minimize chat');
-  }
+  if (chatCollapsed) chatHidden = false;
+  applyChatDockState();
+}
+
+function toggleChatHidden() {
+  chatHidden = !chatHidden;
+  if (!chatHidden) chatCollapsed = false;
+  applyChatDockState();
 }
 
 function renderLobbyChatFeed(scrollToEnd = false) {
@@ -925,7 +1033,7 @@ function exitBoardLobby() {
   sessionStorage.removeItem(ROOM_SESSION_KEY);
   hideRoomChat();
   clearLobbyChat();
-  document.body.classList.remove('game-active', 'spectator-mode');
+  document.body.classList.remove('game-active', 'spectator-mode', 'game-chat-hidden', 'game-chat-collapsed');
   startLiveStatsPoll();
   startLobbyFeed();
   renderRoomList();
@@ -1443,7 +1551,7 @@ function resetGameSession() {
   gameSpectating = false;
   gamePausedAway = false;
   $('spectateBanner')?.classList.add('hidden');
-  document.body.classList.remove('game-active', 'spectator-mode');
+  document.body.classList.remove('game-active', 'spectator-mode', 'game-chat-hidden', 'game-chat-collapsed');
   $('hud')?.classList.add('hidden');
   $('scene')?.classList.add('hidden');
   $('roomLobby')?.classList.add('hidden');
@@ -2040,11 +2148,21 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     e.stopPropagation();
     toggleChatCollapsed();
   });
+  $('lobbyChatHide')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleChatHidden();
+  });
+  $('chatRestoreBtn')?.addEventListener('click', () => {
+    chatHidden = false;
+    applyChatDockState();
+    showRoomChat(document.body.classList.contains('game-active') ? 'game' : 'lobby');
+  });
   $('lobbyChat')?.addEventListener('click', () => {
-    if (chatCollapsed && $('roomChatDock')?.classList.contains('room-chat-dock--game')) {
+    if (chatCollapsed && !chatHidden && $('roomChatDock')?.classList.contains('room-chat-dock--game')) {
       toggleChatCollapsed();
     }
   });
+  initChatDockDrag();
   document.addEventListener('wt:player-left-game', onPlayerLeftGame);
   $('roomRefresh')?.addEventListener('click', () => {
     roomsPanelOpen = true;
