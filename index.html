@@ -108,6 +108,7 @@
     <!-- Home — centered hero (Richup-style) -->
     <section id="lobbyHome" class="lobby-hero">
       <div class="lobby-hero__fold">
+      <div class="lobby-hero__core">
       <h1 class="lobby-hero__title">Buildup<span class="lobby-hero__accent">.io</span></h1>
       <p class="lobby-hero__tag">Own every street. Rule the board.</p>
 
@@ -163,8 +164,18 @@
           </button>
         </div>
       </div>
+      </div>
 
-      <p class="lobby-scroll-hint" aria-hidden="true"><span>Scroll for rooms &amp; guide</span><span class="lobby-scroll-hint__chev">↓</span></p>
+      <div id="publicRoomsSection" class="home-all-rooms hidden">
+        <div class="home-all-rooms__head">
+          <p class="home-all-rooms__label"><strong id="homePlayingCount">50</strong> online · All rooms<span class="home-rooms__live-dots" id="homeRoomsLiveDots" aria-hidden="true"><span class="home-rooms__live-dot"></span><span class="home-rooms__live-dot"></span><span class="home-rooms__live-dot"></span></span></p>
+          <button type="button" class="home-all-rooms__refresh" id="roomRefresh" title="Refresh">↻</button>
+        </div>
+        <div class="room-list room-list--inline" id="roomList"></div>
+        <p class="home-all-rooms__empty hidden" id="homeRoomsEmpty">No open public lobbies right now — hit Play to start one.</p>
+      </div>
+
+      <p class="lobby-scroll-hint" aria-hidden="true"><span>Scroll for guide</span><span class="lobby-scroll-hint__chev">↓</span></p>
       </div>
 
       <div class="lobby-hero__below" id="lobbyBelowFold">
@@ -175,15 +186,6 @@
         </div>
         <div class="room-list" id="spectateList"></div>
         <p class="home-rooms__empty hidden" id="spectateEmpty">No public games in progress right now — start one with Play.</p>
-      </div>
-
-      <div id="publicRoomsSection" class="home-rooms hidden">
-        <div class="home-rooms__head">
-          <span class="home-rooms__title"><strong id="homePlayingCount">50</strong> online · All rooms<span class="home-rooms__live-dots" id="homeRoomsLiveDots" aria-hidden="true"><span class="home-rooms__live-dot"></span><span class="home-rooms__live-dot"></span><span class="home-rooms__live-dot"></span></span></span>
-          <button type="button" class="home-rooms__refresh" id="roomRefresh" title="Refresh">↻</button>
-        </div>
-        <div class="room-list" id="roomList"></div>
-        <p class="home-rooms__empty hidden" id="homeRoomsEmpty">No open public lobbies right now — hit Play to start one.</p>
       </div>
 
       <section class="home-guide" id="homeGuide" aria-labelledby="homeGuideTitle">

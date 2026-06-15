@@ -347,18 +347,12 @@ function syncLobbySeatedFlag(room) {
 
 let cachedFakePlaying = 0;
 let fakePlayingUpdated = 0;
-let cachedFakeRooms = 0;
-let fakeRoomsUpdated = 0;
 let liveStatsTimer = null;
 const LIVE_STATS_POLL_MS = 2000;
 
 function rollFakePlayingCount() {
   if (Math.random() < 0.32) return 100 + Math.floor(Math.random() * 96);
   return 50 + Math.floor(Math.random() * 50);
-}
-
-function rollFakeActiveRooms() {
-  return 5 + Math.floor(Math.random() * 16);
 }
 
 function fakePlayingDisplayCount() {
@@ -370,18 +364,9 @@ function fakePlayingDisplayCount() {
   return cachedFakePlaying;
 }
 
-function fakeActiveRoomsDisplayCount() {
-  const now = Date.now();
-  if (!cachedFakeRooms || now - fakeRoomsUpdated > 28000 + Math.random() * 32000) {
-    cachedFakeRooms = rollFakeActiveRooms();
-    fakeRoomsUpdated = now;
-  }
-  return cachedFakeRooms;
-}
-
-function formatFakeLivePair() {
-  const h = fakePlayingDisplayCount();
-  const r = fakeActiveRoomsDisplayCount();
+function formatLivePair(humans, rooms) {
+  const h = Math.max(0, humans | 0);
+  const r = Math.max(0, rooms | 0);
   return `${String(h).padStart(2, '0')}/${String(r).padStart(2, '0')}`;
 }
 
@@ -391,13 +376,16 @@ function updateRoomsSectionHeader() {
 }
 
 function updateLiveActivityUI(live = {}) {
-  const pair = formatFakeLivePair();
+  const humans = live.humansPlaying ?? 0;
+  const rooms = live.activeRooms ?? 0;
+  const pair = formatLivePair(humans, rooms);
+  const active = humans > 0 || rooms > 0;
 
   ['lobbyLiveStat1', 'lobbyLiveStat2', 'lobbyLiveStat3', 'lobbyLiveStat4'].forEach(id => {
     const el = $(id);
     if (el) {
       el.textContent = pair;
-      el.classList.add('lobby-live-stat--active');
+      el.classList.toggle('lobby-live-stat--active', active);
     }
   });
 
@@ -422,8 +410,9 @@ async function refreshLiveStats() {
 
 function startLiveStatsPoll() {
   if (liveStatsTimer) clearInterval(liveStatsTimer);
-  refreshLiveStats();
+  updateLiveActivityUI({});
   updateRoomsSectionHeader();
+  refreshLiveStats();
   liveStatsTimer = setInterval(() => {
     refreshLiveStats();
     updateRoomsSectionHeader();
@@ -1861,7 +1850,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('homeAllRooms')?.addEventListener('click', () => {
     roomsPanelOpen = true;
     renderRoomList();
-    $('lobbyBelowFold')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('publicRoomsSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
   $('homeSpectate')?.addEventListener('click', () => {
     spectatePanelOpen = true;
