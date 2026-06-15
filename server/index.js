@@ -154,9 +154,12 @@ function publicRoomList() {
   pruneRooms();
   return [...rooms.values()]
     .filter(r => !r.private && r.status === 'lobby')
-    .filter(r => humanCount(r) > 0 || r.humanoidHosted)
     .filter(r => r.slots.some(s => !s))
+    .filter(r => humanCount(r) > 0 || r.humanoidHosted)
     .sort((a, b) => {
+      const openA = a.slots.filter(s => !s).length;
+      const openB = b.slots.filter(s => !s).length;
+      if (openB !== openA) return openB - openA;
       if (a.humanoidHosted !== b.humanoidHosted) return a.humanoidHosted ? 1 : -1;
       return humanCount(b) - humanCount(a) || b.updatedAt - a.updatedAt;
     })

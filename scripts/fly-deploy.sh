@@ -28,6 +28,10 @@ if [[ -z "${GOOGLE_CLIENT_ID:-}" ]]; then
 fi
 
 VITE_GOOGLE_CLIENT_ID="${VITE_GOOGLE_CLIENT_ID:-$GOOGLE_CLIENT_ID}"
+DISCORD_ARG=()
+if [[ -n "${VITE_DISCORD_INVITE_URL:-}" ]]; then
+  DISCORD_ARG=(--build-arg "VITE_DISCORD_INVITE_URL=${VITE_DISCORD_INVITE_URL}")
+fi
 
 echo "→ Setting runtime secrets on ${APP}..."
 flyctl secrets set \
@@ -38,7 +42,8 @@ flyctl secrets set \
 echo "→ Deploying (baking VITE_GOOGLE_CLIENT_ID into frontend)..."
 flyctl deploy \
   -a "$APP" \
-  --build-arg "VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}"
+  --build-arg "VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}" \
+  "${DISCORD_ARG[@]}"
 
 echo ""
 echo "Done. Open https://${APP}.fly.dev"

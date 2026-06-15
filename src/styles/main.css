@@ -3075,13 +3075,16 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   position:absolute;top:8px;right:8px;font-size:7px;font-weight:800;text-transform:uppercase;
   padding:2px 5px;border-radius:4px;background:rgba(255,214,0,.15);color:#FFD740;
 }
+#lobbyWrap.lobby-shell:has(#lobbyHome:not(.hidden)){
+  max-width:min(96vw,720px);
+}
 #lobbyWrap.lobby-shell:has(#lobbyProfile:not(.hidden)),
 #lobbyWrap.lobby-shell:has(#lobbyStore:not(.hidden)){
   max-width:760px;
 }
 .lobby-hero{
-  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  text-align:center;padding:min(10vh,72px) 0 32px;max-width:min(92vw,560px);margin:0 auto;width:100%;
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  text-align:center;padding:min(8vh,64px) 0 48px;max-width:min(96vw,680px);margin:0 auto;width:100%;
 }
 .lobby-hero__title{
   font-size:clamp(52px,14vw,88px);font-weight:800;letter-spacing:-.04em;
@@ -3241,6 +3244,97 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;cursor:pointer;
 }
 .home-rooms__empty{font-size:12px;color:rgba(255,255,255,.4);text-align:center;padding:16px 8px}
+
+/* —— How to play (home) —— */
+.home-guide{
+  position:relative;width:100%;max-width:680px;margin:40px auto 0;padding:28px 22px 32px;
+  border-radius:24px;text-align:left;
+  background:linear-gradient(168deg,rgba(18,28,36,.72),rgba(10,16,22,.88));
+  border:1px solid rgba(94,234,212,.14);
+  box-shadow:0 24px 60px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06);
+  overflow:hidden;
+}
+.home-guide__glow{
+  position:absolute;top:-40%;right:-20%;width:70%;height:80%;
+  background:radial-gradient(ellipse,rgba(13,148,136,.2),transparent 65%);
+  pointer-events:none;
+}
+.home-guide__eyebrow{
+  font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(94,234,212,.75);margin-bottom:6px;
+}
+.home-guide__title{
+  font-size:clamp(28px,6vw,36px);font-weight:800;letter-spacing:-.03em;color:#fff;margin:0 0 10px;
+}
+.home-guide__lead{
+  font-size:14px;line-height:1.55;color:rgba(255,255,255,.52);margin:0 0 24px;max-width:52ch;
+}
+.home-guide__steps{
+  list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px;
+}
+.guide-step{
+  display:flex;align-items:flex-start;gap:14px;padding:14px 16px;border-radius:16px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);
+  transition:border-color .2s,background .2s,transform .2s;
+}
+.guide-step:hover{
+  background:rgba(255,255,255,.06);border-color:rgba(94,234,212,.2);transform:translateX(4px);
+}
+.guide-step--highlight{
+  background:linear-gradient(135deg,rgba(13,148,136,.18),rgba(109,78,210,.12));
+  border-color:rgba(94,234,212,.28);
+  box-shadow:0 8px 28px rgba(13,148,136,.12);
+}
+.guide-step__icon{
+  flex-shrink:0;width:44px;height:44px;display:grid;place-items:center;
+  font-size:22px;border-radius:12px;
+  background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);
+}
+.guide-step__body h3{
+  margin:0 0 4px;font-size:15px;font-weight:800;color:#fff;letter-spacing:-.01em;
+}
+.guide-step__body p{margin:0;font-size:13px;line-height:1.5;color:rgba(255,255,255,.55)}
+.home-guide__callout{
+  display:flex;align-items:center;gap:16px;margin-top:20px;padding:16px 18px;border-radius:16px;
+  background:rgba(255,214,0,.06);border:1px solid rgba(255,214,0,.18);
+}
+.home-guide__callout-art{
+  display:flex;gap:4px;font-size:22px;flex-shrink:0;opacity:.85;
+}
+.home-guide__callout p{margin:0;font-size:13px;line-height:1.5;color:rgba(255,255,255,.62)}
+.home-guide__callout strong{color:#fde68a}
+
+/* —— Home footer + Discord —— */
+.home-footer{
+  width:100%;max-width:680px;margin:32px auto 24px;padding:0 4px;
+  display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center;
+}
+.home-discord{
+  display:flex;align-items:center;gap:14px;width:100%;max-width:420px;padding:14px 18px;
+  border-radius:16px;text-decoration:none;color:#fff;
+  background:linear-gradient(145deg,#5865F2,#4752C4);
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:0 12px 36px rgba(88,101,242,.35),inset 0 1px 0 rgba(255,255,255,.15);
+  transition:transform .15s,box-shadow .15s;
+}
+.home-discord:hover{
+  transform:translateY(-2px);
+  box-shadow:0 16px 44px rgba(88,101,242,.45),inset 0 1px 0 rgba(255,255,255,.2);
+}
+.home-discord__logo{flex-shrink:0;opacity:.95}
+.home-discord__text{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left}
+.home-discord__text strong{font-size:15px;font-weight:800;letter-spacing:-.01em}
+.home-discord__text small{font-size:11px;font-weight:500;opacity:.82}
+.home-footer__links{
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;
+  font-size:12px;
+}
+.home-footer__link{color:rgba(255,255,255,.55);text-decoration:none;font-weight:600}
+.home-footer__link:hover{color:#fff}
+.home-footer__link--muted{cursor:default;opacity:.45}
+.home-footer__sep{opacity:.25;color:rgba(255,255,255,.4)}
+.home-footer__copy{margin:0;font-size:11px;color:rgba(255,255,255,.32)}
+
 .auth-gbtn--compact{height:32px;padding:0 12px 0 8px;font-size:11px}
 .auth-gbtn--compact .auth-gbtn__icon{width:16px;height:16px}
 #lobbyWrap.lobby-shell:has(#lobbyCreate:not(.hidden)){
@@ -3878,31 +3972,59 @@ body.game-active #hudLeft .portfolio-list{
 .room-list{display:flex;flex-direction:column;gap:10px;max-height:min(52vh,420px);overflow-y:auto}
 .room-empty{padding:32px;text-align:center;color:var(--muted);font-size:13px}
 .room-card{
-  display:flex;align-items:stretch;gap:0;width:100%;text-align:left;
-  padding:0;border-radius:14px;overflow:hidden;cursor:pointer;
-  background:linear-gradient(135deg,rgba(13,148,136,.22),rgba(8,80,74,.32));
-  border:1px solid rgba(94,234,212,.18);
-  transition:transform .14s,border-color .14s,box-shadow .14s;
+  display:flex;flex-direction:column;align-items:stretch;gap:0;width:100%;text-align:left;
+  padding:0;border-radius:18px;overflow:hidden;cursor:pointer;position:relative;
+  background:linear-gradient(155deg,rgba(16,42,48,.85),rgba(8,24,28,.92));
+  border:1px solid rgba(94,234,212,.22);
+  box-shadow:0 10px 32px rgba(0,0,0,.28);
+  transition:transform .16s,border-color .16s,box-shadow .16s;
 }
 .room-card:hover{
-  transform:translateY(-2px);
-  border-color:rgba(94,234,212,.38);
-  box-shadow:0 8px 28px rgba(13,148,136,.28);
+  transform:translateY(-3px);
+  border-color:rgba(94,234,212,.42);
+  box-shadow:0 16px 40px rgba(13,148,136,.22);
+}
+.room-card--join .room-card__badge{
+  position:absolute;top:12px;right:12px;z-index:1;
+  padding:5px 10px;border-radius:999px;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:#a7f3d0;background:rgba(13,148,136,.35);border:1px solid rgba(94,234,212,.35);
+}
+.room-card--bot-host .room-card__badge{
+  color:#fecaca;background:rgba(239,68,68,.25);border-color:rgba(248,113,113,.35);
 }
 .room-card--bot-host{
-  border-color:rgba(239,68,68,.45);
-  box-shadow:0 0 0 1px rgba(239,68,68,.2),0 8px 24px rgba(0,0,0,.35);
+  border-color:rgba(239,68,68,.35);
+  background:linear-gradient(155deg,rgba(48,16,20,.85),rgba(28,8,12,.92));
 }
-.room-card--bot-host:hover{
-  border-color:rgba(248,113,113,.55);
-  box-shadow:0 0 0 1px rgba(248,113,113,.25),0 8px 28px rgba(239,68,68,.22);
+.room-card--bot-host:hover{border-color:rgba(248,113,113,.5);box-shadow:0 16px 40px rgba(239,68,68,.18)}
+.room-card__main{padding:16px 16px 14px;display:flex;flex-direction:column;gap:10px}
+.room-card__top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;padding-right:72px}
+.room-card__id{font-size:18px;font-weight:800;letter-spacing:.12em;color:#fff;font-family:ui-monospace,monospace}
+.room-card__board{font-size:11px;font-weight:700;color:rgba(255,255,255,.55)}
+.room-card__fill{display:flex;flex-direction:column;gap:6px}
+.room-card__fill-track{
+  height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;
 }
-.room-card--bot-host .room-card__meta{color:rgba(248,113,113,.95)}
+.room-card__fill-bar{
+  display:block;height:100%;border-radius:999px;
+  background:linear-gradient(90deg,#0D9488,#5EEAD4);
+  transition:width .3s ease;
+}
+.room-card__fill-label{font-size:10px;font-weight:600;color:rgba(255,255,255,.45)}
+.room-card__aside{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);
+  background:rgba(0,0,0,.22);
+}
+.room-card__join{
+  font-size:13px;font-weight:800;letter-spacing:.04em;color:#5EEAD4;
+}
+.room-card--bot-host .room-card__join{color:#fca5a5}
+/* legacy room-card sides (spectate etc.) */
 .room-card__left{
   flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;
   border-right:1px solid rgba(255,255,255,.08);
 }
-.room-card__id{font-size:17px;font-weight:800;letter-spacing:.14em;color:#fff;font-family:ui-monospace,monospace}
 .room-card__meta{font-size:10px;font-weight:700;color:rgba(94,234,212,.85);letter-spacing:.02em}
 .room-slot--humanoid{box-shadow:0 0 0 2px #ff1744,0 2px 10px color-mix(in srgb,var(--pc,#666) 35%,transparent)}
 .room-player-item--humanoid .room-player-item__tok--humanoid{
@@ -4244,8 +4366,12 @@ body.game-active #hudLeft .portfolio-list{
   .adv-toggles{grid-template-columns:1fr}
   .home-secondary{grid-template-columns:1fr}
   .room-card{flex-direction:column}
+  .room-card__top{padding-right:0}
   .room-card__left{border-right:none;border-bottom:1px solid rgba(255,255,255,.08)}
   .room-card__right{width:100%;flex-direction:row;flex-wrap:wrap;align-items:center}
+  .home-guide{padding:22px 16px 26px;margin-top:28px}
+  .home-guide__callout{flex-direction:column;text-align:center}
+  .home-discord{max-width:100%}
   .pick-chip{padding:9px 12px;font-size:11px}
   #logDrawer{width:var(--hud-side);max-height:min(280px,38vh)}
   #playersCard{max-width:calc(100vw - 28px);min-width:200px}

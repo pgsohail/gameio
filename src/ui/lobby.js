@@ -1,4 +1,5 @@
-import { $ } from '../lib/format.js';
+import { $, fmt } from '../lib/format.js';
+import { DISCORD_INVITE_URL } from '../lib/community.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
@@ -89,6 +90,16 @@ function ruleIconsHtml(rules) {
     const on = rules[r.key];
     return `<span class="room-rule-ico${on ? ' on' : ''}" title="${esc(r.title)}">${r.icon}</span>`;
   }).join('');
+}
+
+function openSeatsInRoom(r) {
+  return r.openSeats ?? r.slots?.filter(s => !s).length ?? 0;
+}
+
+function isJoinableOpenRoom(r) {
+  if (!r || r.private) return false;
+  if (r.status !== 'lobby') return false;
+  return openSeatsInRoom(r) > 0;
 }
 
 function slotAvatars(slots, max) {
@@ -362,7 +373,6 @@ function formatLivePair(humans, rooms) {
 function updateLiveActivityUI(live = {}) {
   const humans = live.humansPlaying ?? 0;
   const rooms = live.activeRooms ?? 0;
-  const publicPlaying = live.publicPlaying ?? 0;
   const pair = formatLivePair(humans, rooms);
 
   ['lobbyLiveStat1', 'lobbyLiveStat2', 'lobbyLiveStat3', 'lobbyLiveStat4'].forEach(id => {
@@ -375,19 +385,6 @@ function updateLiveActivityUI(live = {}) {
 
   const playingEl = $('homePlayingCount');
   if (playingEl) playingEl.textContent = String(fakePlayingDisplayCount());
-
-  const dots = $('homeLiveDots');
-  if (dots) {
-    if (publicPlaying <= 0) {
-      dots.innerHTML = '';
-      dots.classList.add('hidden');
-    } else {
-      dots.classList.remove('hidden');
-      dots.innerHTML = Array.from({ length: publicPlaying }, (_, i) =>
-        `<span class="home-rooms__live-dot" style="animation-delay:${(i * 0.22).toFixed(2)}s"></span>`,
-      ).join('');
-    }
-  }
 }
 
 function shouldPollLiveStats() {
@@ -426,33 +423,42 @@ async function renderRoomList() {
     const { rooms, spectateRooms = [], playingCount = 0, live = {} } = await roomsApi.list();
     updateLiveActivityUI(live);
     renderSpectateList(spectateRooms, live);
-    const openRooms = (rooms || []).filter(r =>
-      r.status === 'lobby' && (r.openSeats ?? r.slots?.filter(s => !s).length ?? 0) > 0,
-    );
-    const realPublicPlaying = live.publicPlaying ?? playingCount ?? 0;
-    const show = roomsPanelOpen || openRooms.length > 0 || realPublicPlaying > 0;
+    const openRooms = (rooms || []).filter(isJoinableOpenRoom);
+    const openCountEl = $('homeOpenRoomsCount');
+    if (openCountEl) openCountEl.textContent = String(openRooms.length);
+    const show = roomsPanelOpen || openRooms.length > 0;
     section.classList.toggle('hidden', !show);
-    empty?.classList.toggle('hidden', !show || openRooms.length > 0);
+    empty?.classList.toggle('hidden', openRooms.length > 0);
     if (!openRooms.length) {
       list.innerHTML = '';
       return;
     }
     list.innerHTML = openRooms.map(r => {
       const humans = r.humans ?? r.slots?.filter(s => s && !s.bot).length ?? 0;
-      const open = r.openSeats ?? r.slots?.filter(s => !s).length ?? 0;
+      const open = openSeatsInRoom(r);
       const total = r.maxPlayers || r.slots?.length || 4;
+      const filled = total - open;
+      const fillPct = total ? Math.round((filled / total) * 100) : 0;
       const botHost = !!r.humanoidHosted;
+      const cash = r.rules?.cash ?? 2000;
       return `
-      <button type="button" class="room-card room-card--public${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
-        <div class="room-card__left">
-          <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
-          <span class="room-card__meta">${botHost ? '🧠 Bot host · tap to join' : `${humans} playing · ${open} seat${open === 1 ? '' : 's'} open`}</span>
+      <button type="button" class="room-card room-card--join${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
+        <div class="room-card__badge">${botHost ? '🧠 Bot host' : `${open} seat${open === 1 ? '' : 's'} open`}</div>
+        <div class="room-card__main">
+          <div class="room-card__top">
+            <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
+            <span class="room-card__board">🗺 ${esc(boardLabel(r.rules?.per))}</span>
+          </div>
+          <div class="room-card__fill">
+            <div class="room-card__fill-track" aria-hidden="true"><span class="room-card__fill-bar" style="width:${fillPct}%"></span></div>
+            <span class="room-card__fill-label">${filled}/${total} travelers · ${humans} human${humans === 1 ? '' : 's'}</span>
+          </div>
           <div class="room-card__slots">${slotAvatars(r.slots, total)}</div>
+          <div class="room-card__rules">${ruleIconsHtml(r.rules || {})}</div>
         </div>
-        <div class="room-card__right">
-          <span class="room-card__mode">🗺 ${boardLabel(r.rules.per)}</span>
-          <div class="room-card__rules">${ruleIconsHtml(r.rules)}</div>
-          <span class="room-card__cash">▶ ${r.rules.cash}</span>
+        <div class="room-card__aside">
+          <span class="room-card__cash">${fmt(cash)}</span>
+          <span class="room-card__join">Join ›</span>
         </div>
       </button>`;
     }).join('');
@@ -1782,6 +1788,8 @@ export async function initLobby(startGame, boardStats, previewBoard) {
 
   await restoreSession();
   renderAuthBar();
+  const discordBtn = $('discordBtn');
+  if (discordBtn && DISCORD_INVITE_URL) discordBtn.href = DISCORD_INVITE_URL;
   renderHostTraveler();
   renderBoardJoinColors();
   initGoogleSignIn();
