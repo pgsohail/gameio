@@ -2942,6 +2942,22 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
   cursor:pointer;font-family:inherit;
 }
+.hub-top__discord{
+  display:inline-grid;place-items:center;width:36px;height:36px;padding:0;border-radius:11px;
+  color:#e0e7ff;text-decoration:none;flex-shrink:0;
+  background:linear-gradient(145deg,rgba(88,101,242,.55),rgba(71,82,196,.45));
+  border:1px solid rgba(139,152,255,.35);
+  box-shadow:0 4px 16px rgba(88,101,242,.28),inset 0 1px 0 rgba(255,255,255,.12);
+  transition:transform .14s,box-shadow .14s,background .14s,border-color .14s;
+}
+.hub-top__discord:hover{
+  color:#fff;transform:translateY(-1px) scale(1.04);
+  background:linear-gradient(145deg,#5865F2,#4752C4);
+  border-color:rgba(199,210,254,.45);
+  box-shadow:0 8px 22px rgba(88,101,242,.45),inset 0 1px 0 rgba(255,255,255,.18);
+}
+.hub-top__discord:active{transform:translateY(0) scale(.98)}
+.hub-top__discord-ico{display:block}
 .hub-top__coins:disabled{opacity:.65;cursor:default}
 .hub-top__coin-ico{font-size:13px}
 .hub-top__badge{

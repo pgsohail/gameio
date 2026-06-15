@@ -1,5 +1,5 @@
 import { $, fmt } from '../lib/format.js';
-import { DISCORD_INVITE_URL } from '../lib/community.js';
+import { wireDiscordLinks } from '../lib/community.js';
 import { BRIGHT_COLORS } from '../lib/colors.js';
 import {
   continueAsGuest, getRemember, getUser, initGoogleSignIn,
@@ -1788,8 +1788,7 @@ export async function initLobby(startGame, boardStats, previewBoard) {
 
   await restoreSession();
   renderAuthBar();
-  const discordBtn = $('discordBtn');
-  if (discordBtn && DISCORD_INVITE_URL) discordBtn.href = DISCORD_INVITE_URL;
+  wireDiscordLinks();
   renderHostTraveler();
   renderBoardJoinColors();
   initGoogleSignIn();
