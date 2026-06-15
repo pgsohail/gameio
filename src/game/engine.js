@@ -2364,13 +2364,13 @@ function drawCard(p,deck,again){
    AUCTION
 ============================================================ */
 let A=null;
+const AUC_INACTIVITY_MS=12_000;
 const AUC_HUMAN_TURN_MS=10_000;
 const AUC_BOT_TURN_MS=5_000;
 let aucTimerInterval=null;
 
 function clearAucTimer(){
   if(A)A.turnDeadline=0;
-  $('aucTimer')?.classList.add('hidden');
   if(aucTimerInterval){
     clearInterval(aucTimerInterval);
     aucTimerInterval=null;
@@ -2378,7 +2378,7 @@ function clearAucTimer(){
 }
 
 function scheduleAucTurnTimer(cur){
-  if(!A||!cur||cur.id===A.leader)return;
+  if(!A||!cur)return;
   A.turnLimitMs=cur.bot?AUC_BOT_TURN_MS:AUC_HUMAN_TURN_MS;
   A.turnDeadline=Date.now()+A.turnLimitMs;
   ensureAucTimer();
@@ -2388,12 +2388,16 @@ function scheduleAucTurnTimer(cur){
 function ensureAucTimer(){
   if(aucTimerInterval)return;
   aucTimerInterval=setInterval(()=>{
-    if(!A||!A.turnDeadline){
+    if(!A){
       clearAucTimer();
       return;
     }
     updateAucTimerBar();
-    if(Date.now()>=A.turnDeadline){
+    if(A.deadline&&Date.now()>=A.deadline){
+      if(!isMpGame()||localRunsBots())onAucInactivityEnd();
+      return;
+    }
+    if(A.turnDeadline&&Date.now()>=A.turnDeadline){
       if(!isMpGame()||localRunsBots())onAucTurnTimeout();
     }
   },100);
@@ -2403,42 +2407,73 @@ function updateAucTimerBar(){
   const wrap=$('aucTimer');
   const fill=$('aucTimerFill');
   const label=$('aucTimerLabel');
-  if(!wrap||!fill||!A?.turnDeadline){
+  if(!wrap||!fill||!A?.deadline){
     wrap?.classList.add('hidden');
     return;
   }
-  const cur=aucCur();
-  if(!cur||cur.id===A.leader){
-    wrap.classList.add('hidden');
-    return;
-  }
-  const limit=A.turnLimitMs||AUC_HUMAN_TURN_MS;
-  const left=Math.max(0,A.turnDeadline-Date.now());
-  const pct=Math.min(100,(left/limit)*100);
+  const inactivityLeft=Math.max(0,A.deadline-Date.now());
+  const pct=Math.min(100,(inactivityLeft/AUC_INACTIVITY_MS)*100);
   fill.style.width=`${pct}%`;
   wrap.classList.remove('hidden');
   if(label){
-    const secs=Math.ceil(left/1000);
-    label.textContent=left<=0?'Time up':`${secs}s to bid or it goes to the leader`;
-    label.classList.toggle('auc-timer__label--urgent',left<=3000);
+    const secs=Math.ceil(inactivityLeft/1000);
+    const lead=A.leader!=null?S.players[A.leader]:null;
+    if(inactivityLeft<=0){
+      label.textContent='Time up';
+    }else if(lead){
+      label.textContent=`${secs}s with no new bids — ${lead.name} leads at ${fmt(A.bid)}`;
+    }else{
+      label.textContent=`${secs}s for the opening bid`;
+    }
+    label.classList.toggle('auc-timer__label--urgent',inactivityLeft<=3000);
   }
-  fill.classList.toggle('auc-timer__fill--urgent',left<=3000);
+  fill.classList.toggle('auc-timer__fill--urgent',inactivityLeft<=3000);
+}
+
+function onAucInactivityEnd(){
+  if(!A||(isMpGame()&&!localRunsBots()))return;
+  A.turnDeadline=0;
+  if(A.leader!=null){
+    const w=S.players[A.leader];
+    log(`⏱️ No more bids — <b>${A.tile.name}</b> goes to <b>${w.name}</b> for ${fmt(A.bid)}.`,w);
+    aucEnd(A.leader);
+    return;
+  }
+  log(`⏱️ Time's up — no bids for <b>${A.tile.name}</b>.`);
+  aucEnd(null);
 }
 
 function onAucTurnTimeout(){
   if(!A||(isMpGame()&&!localRunsBots()))return;
-  const cur=aucCur();
-  A.turnDeadline=0;
-  if(A.leader!=null){
-    const w=S.players[A.leader];
-    log(`⏱️ Time's up — <b>${A.tile.name}</b> goes to <b>${w.name}</b> for ${fmt(A.bid)}.`,w);
-    aucEnd(A.leader);
+  if(A.deadline&&Date.now()>=A.deadline){
+    onAucInactivityEnd();
     return;
   }
-  if(cur){
-    log(`⏱️ <b>${cur.name}</b> ran out of time and folds.`,cur);
-    aucFold(cur);
+  const cur=aucCur();
+  A.turnDeadline=0;
+  if(!cur)return;
+  log(`⏱️ <b>${cur.name}</b> didn't bid — next player.`,cur);
+  aucAdvanceWithoutBid();
+}
+
+function aucAdvanceWithoutBid(){
+  if(!A)return;
+  if(A.deadline&&Date.now()>=A.deadline){
+    onAucInactivityEnd();
+    return;
   }
+  if(A.leader!=null){
+    A.passedCount=(A.passedCount||0)+1;
+    const others=A.active.filter(id=>id!==A.leader).length;
+    if(A.passedCount>=others){
+      aucEnd(A.leader);
+      return;
+    }
+  }
+  A.idx++;
+  aucRender();
+  if(isMultiplayerActive())broadcastStateNow();
+  setTimeout(aucStep,400);
 }
 
 function serializeAuction(){
@@ -2452,6 +2487,8 @@ function serializeAuction(){
     afterPlayerId:A.afterPlayerId,afterAgain:!!A.afterAgain,
     turnDeadline:A.turnDeadline||0,
     turnLimitMs:A.turnLimitMs||AUC_HUMAN_TURN_MS,
+    deadline:A.deadline||0,
+    passedCount:A.passedCount||0,
   };
 }
 function setupAuctionModal(tile){
@@ -2463,7 +2500,7 @@ function setupAuctionModal(tile){
       <div class="auc-prop-card__body">${propRentHTML(tile)||'<p class="auc-prop-card__special">Special tile</p>'}</div>
       ${propFootHTML(tile)}`;
   }
-  $('aucPropHead').innerHTML=`<span class="auc-hero__chip">${tileIcon(t)}</span><h3 class="auc-hero__name">${tradeEsc(tile.name)}</h3>`;
+  $('aucPropHead').innerHTML=`<span class="auc-hero__chip">${tileIcon(tile)}</span><h3 class="auc-hero__name">${tradeEsc(tile.name)}</h3>`;
   $('aucRentPanel').innerHTML=`<div class="prop-rents">${propRentHTML(tile)||'<div class="prop-row"><span>Special tile</span><b>—</b></div>'}</div>${propFootHTML(tile)}`;
   $('aucHistory').innerHTML='';
   const lav0=$('aucLeadAv');
@@ -2505,14 +2542,18 @@ function restoreAuctionState(data){
     afterPlayerId:data.afterPlayerId,afterAgain:!!data.afterAgain,
     turnDeadline:data.turnDeadline||0,
     turnLimitMs:data.turnLimitMs||AUC_HUMAN_TURN_MS,
+    deadline:data.deadline||Date.now()+AUC_INACTIVITY_MS,
+    passedCount:data.passedCount||0,
   };
   if(!wasActive)setupAuctionModal(tile);
   $('aucModal')?.classList.remove('hidden');
   aucRender();
   updateAucRestoreBar();
-  if(A.turnDeadline&&Date.now()>=A.turnDeadline&&( !isMpGame()||localRunsBots())){
+  if(A.turnDeadline&&Date.now()>=A.turnDeadline&&(!isMpGame()||localRunsBots())){
     onAucTurnTimeout();
-  }else if(A.turnDeadline){
+  }else if(A.deadline&&Date.now()>=A.deadline&&(!isMpGame()||localRunsBots())){
+    onAucInactivityEnd();
+  }else if(A.deadline||A.turnDeadline){
     ensureAucTimer();
     updateAucTimerBar();
   }
@@ -2528,11 +2569,14 @@ function startAuction(tile,after={}){
   A={
     tile,bid:0,leader:null,active:bidders.map(p=>p.id),idx:0,history:[],
     afterPlayerId:after.playerId??S.cur?.id,afterAgain:!!after.again,
+    deadline:Date.now()+AUC_INACTIVITY_MS,passedCount:0,
   };
   setupAuctionModal(tile);
   $('aucModal')?.classList.remove('hidden','overlay--minimized');
   $('aucRestoreBar')?.classList.add('hidden');
-  aucRender();aucStep();
+  aucRender();
+  ensureAucTimer();
+  aucStep();
   if(isMultiplayerActive())broadcastStateNow();
 }
 function aucCur(){return S.players[A.active[A.idx%A.active.length]];}
@@ -2559,23 +2603,31 @@ function aucRender(){
     return `<div class="auc-hist" style="--hc:${p.color}"><span class="av-sm" style="background:${p.color}">${p.emoji}</span><span><b>${p.name}</b> bids ${fmt(h.amount)}</span></div>`;
   }).join('');
   $('aucPlayers').innerHTML=alive().map(p=>{
-    const folded=!A.active.includes(p.id);
-    return `<span class="aucP${folded?' folded':''}${A.leader===p.id?' lead':''}" style="--pc:${p.color};border-left:3px solid ${p.color}">${p.emoji} ${p.name}</span>`;
+    const onTurn=aucCur()?.id===p.id;
+    const inAuction=A.active.includes(p.id);
+    return `<span class="aucP${A.leader===p.id?' lead':''}${onTurn?' turn':''}${!inAuction?' out':''}" style="--pc:${p.color};border-left:3px solid ${p.color}">${p.emoji} ${p.name}</span>`;
   }).join('');
   const cur=aucCur();
   const humanUp=cur&&!cur.bot&&(!isMpGame()||cur.userId===getUser()?.id);
-  ['aucB10','aucB50','aucB100','aucFold'].forEach(id=>$(id).disabled=!humanUp);
+  const minBid=A.bid+(A.bid<100?10:50);
+  ['aucB10','aucB50','aucB100'].forEach(id=>$(id).disabled=!humanUp);
   if(humanUp){
-    $('aucStatus').textContent=`${cur.name}, raise or fold.`;
-    $('aucB10').disabled=cur.cash<A.bid+10;
+    $('aucStatus').textContent=`${cur.name}, raise the bid — auction ends when bids stop.`;
+    $('aucB10').disabled=cur.cash<minBid;
     $('aucB50').disabled=cur.cash<A.bid+50;
     $('aucB100').disabled=cur.cash<A.bid+100;
+  }else if(A.leader!=null){
+    $('aucStatus').textContent=`Waiting for outbids — ${S.players[A.leader].name} leads at ${fmt(A.bid)}.`;
+  }else{
+    $('aucStatus').textContent=cur?`${cur.name} may open the bidding.`:'Auction in progress…';
   }
   updateAucTimerBar();
 }
 function aucBid(p,amount){
   if(isMpGame()&&!p.bot&&p.userId!==getUser()?.id)return;
   A.turnDeadline=0;
+  A.deadline=Date.now()+AUC_INACTIVITY_MS;
+  A.passedCount=0;
   A.bid=amount;A.leader=p.id;
   A.history.unshift({pid:p.id,amount});
   log(`🔨 <b>${p.name}</b> bids ${fmt(amount)} for ${A.tile.name}.`,p);
@@ -2583,52 +2635,55 @@ function aucBid(p,amount){
   if(isMultiplayerActive())broadcastStateNow();
   setTimeout(aucStep,650);
 }
-function aucFold(p){
-  if(isMpGame()&&!p.bot&&p.userId!==getUser()?.id)return;
-  A.turnDeadline=0;
-  A.active=A.active.filter(id=>id!==p.id);
-  if(A.idx>=A.active.length)A.idx=0;
-  log(`<b>${p.name}</b> folds.`,p);
-  aucRender();
-  if(isMultiplayerActive())broadcastStateNow();
-  setTimeout(aucStep,500);
-}
 function aucStep(){
   if(!A)return;
   if(isMpGame()&&!localRunsBots()){aucRender();return;}
-  if(A.active.length===0){aucEnd(null);return;}
-  if(A.active.length===1&&A.leader===A.active[0]){aucEnd(A.leader);return;}
-  if(A.active.length===1&&A.leader==null){
-    const p=S.players[A.active[0]];
-    if(p.bot){
-      const bid=botNextBid(p,A.tile,A.bid,A.leader);
-      if(bid)aucBid(p,bid);
-      else aucEnd(null);
-      return;
-    }
+  if(A.deadline&&Date.now()>=A.deadline){
+    onAucInactivityEnd();
+    return;
+  }
+  if(!A.active.length){
+    aucEnd(A.leader);
+    return;
   }
   const cur=aucCur();
-  if(cur.id===A.leader){A.idx++;setTimeout(aucStep,60);return;}
+  if(!cur){
+    aucEnd(A.leader);
+    return;
+  }
+  if(A.leader!=null&&cur.id===A.leader){
+    A.idx++;
+    const next=aucCur();
+    if(next&&next.id===A.leader){
+      aucEnd(A.leader);
+      return;
+    }
+    setTimeout(aucStep,60);
+    return;
+  }
   scheduleAucTurnTimer(cur);
   if(cur.bot){
     $('aucStatus').textContent=`${cur.name} is thinking…`;aucRender();
     setTimeout(()=>{
-      if(!A||Date.now()>=A.turnDeadline){
-        if(A?.leader!=null)aucEnd(A.leader);
-        else aucFold(cur);
+      if(!A)return;
+      if(A.deadline&&Date.now()>=A.deadline){
+        onAucInactivityEnd();
+        return;
+      }
+      if(A.turnDeadline&&Date.now()>=A.turnDeadline){
+        aucAdvanceWithoutBid();
         return;
       }
       const next=A.bid+(A.bid<100?10:50);
       const bid=botNextBid(cur,A.tile,next,A.leader);
       if(bid&&cur.cash>=bid)aucBid(cur,bid);
-      else aucFold(cur);
+      else aucAdvanceWithoutBid();
     },Math.min(botThinkMs(cur,'auction'),AUC_BOT_TURN_MS-200));
   }else aucRender();
 }
-$('aucB10').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+10);};
+$('aucB10').onclick=()=>{const p=aucCur();if(!p.bot){const n=A.bid+(A.bid<100?10:50);if(p.cash>=n)aucBid(p,n);}};
 $('aucB50').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+50);};
 $('aucB100').onclick=()=>{const p=aucCur();if(!p.bot)aucBid(p,A.bid+100);};
-$('aucFold').onclick=()=>{const p=aucCur();if(!p.bot)aucFold(p);};
 function aucEnd(winnerId){
   if(isMpGame()&&!localRunsBots())return;
   clearAucTimer();

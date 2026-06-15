@@ -2388,7 +2388,8 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   transition:opacity .25s var(--ease-out),border-color .25s var(--ease-out),box-shadow .25s var(--ease-out),transform .25s var(--ease-out);
 }
 .aucP.lead{transform:scale(1.04)}
-.aucP.folded{opacity:.35;text-decoration:line-through}
+.aucP.turn{box-shadow:0 0 0 1px rgba(255,255,255,.25),0 0 12px rgba(94,234,212,.25)}
+.aucP.out{opacity:.4}
 .aucP.lead{border-color:var(--gold-bright);color:var(--gold-bright);box-shadow:0 0 14px rgba(217,164,65,.2)}
 .auc-status,#aucStatus{
   text-align:center;font-size:12px;font-weight:600;color:rgba(255,255,255,.7);
@@ -2413,7 +2414,7 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 }
 .auc-timer__label--urgent{color:#fbbf24}
 .auc-actions,#aucBtns{
-  display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
   padding:0 18px 16px;
 }
 .auc-act{
@@ -2422,7 +2423,6 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
 }
 .auc-act:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.06)}
 .auc-act:active:not(:disabled){transform:translateY(0) scale(.96);transition-duration:.08s}
-.auc-act--fold{grid-column:span 1}
 .auc-log-wrap{padding:0 18px 14px}
 .auc-log-label{
   font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
