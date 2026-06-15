@@ -347,12 +347,18 @@ function syncLobbySeatedFlag(room) {
 
 let cachedFakePlaying = 0;
 let fakePlayingUpdated = 0;
+let cachedFakeRooms = 0;
+let fakeRoomsUpdated = 0;
 let liveStatsTimer = null;
 const LIVE_STATS_POLL_MS = 2000;
 
 function rollFakePlayingCount() {
   if (Math.random() < 0.32) return 100 + Math.floor(Math.random() * 96);
   return 50 + Math.floor(Math.random() * 50);
+}
+
+function rollFakeActiveRooms() {
+  return 5 + Math.floor(Math.random() * 16);
 }
 
 function fakePlayingDisplayCount() {
@@ -364,27 +370,38 @@ function fakePlayingDisplayCount() {
   return cachedFakePlaying;
 }
 
-function formatLivePair(humans, rooms) {
-  const h = Math.max(0, humans | 0);
-  const r = Math.max(0, rooms | 0);
+function fakeActiveRoomsDisplayCount() {
+  const now = Date.now();
+  if (!cachedFakeRooms || now - fakeRoomsUpdated > 28000 + Math.random() * 32000) {
+    cachedFakeRooms = rollFakeActiveRooms();
+    fakeRoomsUpdated = now;
+  }
+  return cachedFakeRooms;
+}
+
+function formatFakeLivePair() {
+  const h = fakePlayingDisplayCount();
+  const r = fakeActiveRoomsDisplayCount();
   return `${String(h).padStart(2, '0')}/${String(r).padStart(2, '0')}`;
 }
 
+function updateRoomsSectionHeader() {
+  const playingEl = $('homePlayingCount');
+  if (playingEl) playingEl.textContent = String(fakePlayingDisplayCount());
+}
+
 function updateLiveActivityUI(live = {}) {
-  const humans = live.humansPlaying ?? 0;
-  const rooms = live.activeRooms ?? 0;
-  const pair = formatLivePair(humans, rooms);
+  const pair = formatFakeLivePair();
 
   ['lobbyLiveStat1', 'lobbyLiveStat2', 'lobbyLiveStat3', 'lobbyLiveStat4'].forEach(id => {
     const el = $(id);
     if (el) {
       el.textContent = pair;
-      el.classList.toggle('lobby-live-stat--active', humans > 0 || rooms > 0);
+      el.classList.add('lobby-live-stat--active');
     }
   });
 
-  const playingEl = $('homePlayingCount');
-  if (playingEl) playingEl.textContent = String(fakePlayingDisplayCount());
+  updateRoomsSectionHeader();
 }
 
 function shouldPollLiveStats() {
@@ -406,7 +423,11 @@ async function refreshLiveStats() {
 function startLiveStatsPoll() {
   if (liveStatsTimer) clearInterval(liveStatsTimer);
   refreshLiveStats();
-  liveStatsTimer = setInterval(refreshLiveStats, LIVE_STATS_POLL_MS);
+  updateRoomsSectionHeader();
+  liveStatsTimer = setInterval(() => {
+    refreshLiveStats();
+    updateRoomsSectionHeader();
+  }, LIVE_STATS_POLL_MS);
 }
 
 function stopLiveStatsPoll() {
@@ -424,8 +445,6 @@ async function renderRoomList() {
     updateLiveActivityUI(live);
     renderSpectateList(spectateRooms, live);
     const openRooms = (rooms || []).filter(isJoinableOpenRoom);
-    const openCountEl = $('homeOpenRoomsCount');
-    if (openCountEl) openCountEl.textContent = String(openRooms.length);
     const show = roomsPanelOpen || openRooms.length > 0;
     section.classList.toggle('hidden', !show);
     empty?.classList.toggle('hidden', openRooms.length > 0);
@@ -440,19 +459,12 @@ async function renderRoomList() {
       const botHost = !!r.humanoidHosted;
       const cash = r.rules?.cash ?? 2000;
       return `
-      <button type="button" class="room-card room-card--join${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
+      <button type="button" class="room-card room-card--join room-card--compact${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
         <div class="room-card__head">
-          <span class="room-card__code">${esc(formatRoomCode(r.id))}${botHost ? '<span class="room-card__code-tag">Bot host</span>' : ''}</span>
-          <div class="room-card__sub">
-            <span>🗺 <strong>${esc(boardLabel(r.rules?.per))}</strong></span>
-            <span>${filled}/${total} · ${open} open</span>
-          </div>
-          <div class="room-card__players">${slotAvatars(r.slots, total)}</div>
+          <span class="room-card__code">${esc(formatRoomCode(r.id))}${botHost ? '<span class="room-card__code-tag">Bot</span>' : ''}</span>
+          <span class="room-card__sub">🗺 ${esc(boardLabel(r.rules?.per))} · ${filled}/${total} · ${open} open · ${fmt(cash)}</span>
         </div>
-        <div class="room-card__foot">
-          <span class="room-card__cash">${fmt(cash)}</span>
-          <span class="room-card__join-pill">Join</span>
-        </div>
+        <span class="room-card__join-pill">Join</span>
       </button>`;
     }).join('');
     list.querySelectorAll('.room-card').forEach(btn => {
