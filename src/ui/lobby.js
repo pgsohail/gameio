@@ -124,6 +124,11 @@ function isJoinableOpenRoom(r) {
   return openSeatsInRoom(r) > 0;
 }
 
+function isPublicLobbyRoom(r) {
+  if (!r || r.private) return false;
+  return r.status === 'lobby';
+}
+
 function slotAvatars(slots, max) {
   const out = [];
   for (let i = 0; i < max; i++) {
@@ -464,37 +469,48 @@ async function renderRoomList() {
   const empty = $('homeRoomsEmpty');
   if (!section || !list) return;
   try {
-    const { rooms, spectateRooms = [], playingCount = 0, live = {} } = await roomsApi.list();
+    const { rooms, spectateRooms = [], live = {} } = await roomsApi.list();
     updateLiveActivityUI(live);
     renderSpectateList(spectateRooms, live);
-    const openRooms = (rooms || []).filter(isJoinableOpenRoom);
-    const show = roomsPanelOpen || openRooms.length > 0;
-    section.classList.toggle('hidden', !show);
-    empty?.classList.toggle('hidden', openRooms.length > 0);
-    if (!openRooms.length) {
+    const lobbyRooms = (rooms || []).filter(isPublicLobbyRoom).sort((a, b) => {
+      const aj = openSeatsInRoom(a) > 0 ? 0 : 1;
+      const bj = openSeatsInRoom(b) > 0 ? 0 : 1;
+      if (aj !== bj) return aj - bj;
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+    const show = roomsPanelOpen;
+    section.classList.toggle('home-all-rooms--open', show);
+    section.setAttribute('aria-hidden', show ? 'false' : 'true');
+    $('homeAllRooms')?.classList.toggle('home-sec--active', show);
+    empty?.classList.toggle('hidden', lobbyRooms.length > 0);
+    if (!show) return;
+    if (!lobbyRooms.length) {
       list.innerHTML = '';
       return;
     }
-    list.innerHTML = openRooms.map(r => {
+    list.innerHTML = lobbyRooms.map(r => {
       const open = openSeatsInRoom(r);
       const total = r.maxPlayers || r.slots?.length || 4;
       const filled = total - open;
       const botHost = !!r.humanoidHosted;
       const cash = r.rules?.cash ?? 2000;
+      const canJoin = open > 0;
+      const waitLabel = canJoin ? `${open} open` : 'Starting soon';
       return `
-      <button type="button" class="room-card room-card--join room-card--compact${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
+      <button type="button" class="room-card room-card--join room-card--home${botHost ? ' room-card--bot-host' : ''}${canJoin ? '' : ' room-card--full'}" data-room="${esc(r.id)}"${canJoin ? '' : ' disabled'}>
         <div class="room-card__head">
           <span class="room-card__code">${roomCodeMarkup(r.id, { mini: true })}${botHost ? '<span class="room-card__code-tag">Bot</span>' : ''}</span>
-          <span class="room-card__sub">🗺 ${esc(boardLabel(r.rules?.per))} · ${filled}/${total} · ${open} open · ${fmt(cash)}</span>
+          <span class="room-card__sub">🗺 ${esc(boardLabel(r.rules?.per))} · ${filled}/${total} · ${waitLabel} · ${fmt(cash)}</span>
+          <div class="room-card__players">${slotAvatars(r.slots, total)}</div>
         </div>
-        <span class="room-card__join-pill">Join</span>
+        <span class="room-card__join-pill">${canJoin ? 'Join' : 'Full'}</span>
       </button>`;
     }).join('');
-    list.querySelectorAll('.room-card').forEach(btn => {
+    list.querySelectorAll('.room-card:not([disabled])').forEach(btn => {
       btn.onclick = () => joinRoom(btn.dataset.room);
     });
   } catch {
-    section.classList.add('hidden');
+    if (roomsPanelOpen) section.classList.remove('hidden');
   }
 }
 
@@ -1883,9 +1899,8 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('roomPrivate')?.addEventListener('change', syncPrivateHint);
   syncPrivateHint();
   $('homeAllRooms')?.addEventListener('click', () => {
-    roomsPanelOpen = true;
+    roomsPanelOpen = !roomsPanelOpen;
     renderRoomList();
-    $('publicRoomsSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
   $('homeSpectate')?.addEventListener('click', () => {
     spectatePanelOpen = true;
