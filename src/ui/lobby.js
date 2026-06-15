@@ -398,8 +398,8 @@ let liveStatsTimer = null;
 let lobbyFeedSocket = null;
 let lobbyFeedReconnectTimer = null;
 let roomListFallbackTimer = null;
-const LIVE_STATS_POLL_MS = 2000;
-const ROOM_LIST_FALLBACK_MS = 12000;
+const LIVE_STATS_POLL_MS = 3500;
+const ROOM_LIST_FALLBACK_MS = 20000;
 
 function rollFakePlayingCount() {
   if (Math.random() < 0.32) return 100 + Math.floor(Math.random() * 96);
@@ -885,9 +885,6 @@ function subscribeRoom(roomId, { spectate = false } = {}) {
   roomSocket = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
   subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
   if (spectate) enableSpectator(roomSocket, rid);
-  roomSocket?.addEventListener('open', () => {
-    if (spectate && currentRoomId === rid) enableSpectator(roomSocket, rid);
-  }, { once: false });
   roomSocket?.addEventListener('close', () => {
     if (currentRoomId !== rid) return;
     wsReconnectTimer = setTimeout(() => {

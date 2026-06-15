@@ -6,6 +6,7 @@ import { rollDie, rollDicePair } from '../lib/random.js';
 import { buildTileParts, tileIcon as tileIconHTML } from '../ui/tiles.js';
 import { buildPropSheet, propBodyHTML } from '../ui/propModal.js';
 import { renderCountryBrackets, scheduleCountryBrackets } from '../ui/countryBrackets.js';
+import { startClothFlags, stopClothFlags } from '../ui/clothFlagRails.js';
 import { Dice3D, DICE_ROLL_MS } from '../ui/dice.js';
 import {
   playCountryMonopoly, playGameOverWin, playJailBars, playPurchaseTing, playTradeSuccess,
@@ -21,6 +22,7 @@ import { getUser } from '../lib/auth.js';
 import {
   isMpGame, isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
   broadcastStateNow, broadcastDiceRoll, broadcastGameLog, broadcastPlayerMove,
+  setMpBroadcastPaused,
   registerStateSync, registerStateImporter,
   registerDiceRollHandler, registerGameLogHandler, registerPlayerMoveHandler,
   rebuildDeck,
@@ -259,6 +261,9 @@ function exportGameState() {
 let remoteRollUntil = 0;
 const seenLogIds = new Set();
 const animatingPlayers = new Set();
+let renderAllRaf = 0;
+let hubActivityRaf = 0;
+let fitSceneTimer = 0;
 
 function ingestRemoteGameLog(entry) {
   if (!entry?.html) return;
@@ -282,7 +287,7 @@ function ingestRemoteGameLog(entry) {
   }
   logEl.prepend(d);
   while (logEl.children.length > 90) logEl.lastChild.remove();
-  renderHubActivity();
+  scheduleHubActivity();
 }
 
 function onRemoteGameLog(msg) {
@@ -301,6 +306,14 @@ function onRemotePlayerMove(msg) {
   const steps = +msg.steps;
   if (!steps) return;
   animateMove(p, steps, () => { renderAll(); });
+}
+
+function scheduleHubActivity() {
+  if (hubActivityRaf) return;
+  hubActivityRaf = requestAnimationFrame(() => {
+    hubActivityRaf = 0;
+    renderHubActivity();
+  });
 }
 
 function importGameState(state) {
@@ -377,7 +390,7 @@ function importGameState(state) {
   if (Date.now() >= remoteRollUntil) {
     Dice3D.setValues(S.dice[0], S.dice[1], false);
   }
-  renderAll();
+  renderAll({ immediate: true });
   if (S.spectating && S.over && !wasOver) {
     const winner = alive()[0];
     if (winner) showGameOverModal(winner);
@@ -619,7 +632,7 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     ensureTurnTimer();
     const vk=$('voteKickBtn'); if(vk)vk.onclick=castVoteKick;
     const bb=$('bankruptBtn'); if(bb)bb.onclick=openBankruptConfirm;
-    renderAll();
+    renderAll({ immediate: true });
     if (!skipStartTurn) {
       log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
     }
@@ -755,7 +768,20 @@ function initBoard(per,{preview=false}={}){
   if(table) table.insertBefore(countryLayer,board);
 
   fitScene();
-  window.addEventListener('resize', () => { fitScene(); scheduleCountryBrackets(TILES, GROUPS, { force: true }); });
+  if (!window.__wtResizeBound) {
+    window.__wtResizeBound = true;
+    window.addEventListener('resize', () => {
+      clearTimeout(fitSceneTimer);
+      fitSceneTimer = setTimeout(() => {
+        fitScene();
+        scheduleCountryBrackets(TILES, GROUPS, { force: true });
+      }, 120);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopClothFlags();
+      else if (document.querySelector('#countryLayer .cloth-flag')) startClothFlags();
+    });
+  }
   scheduleCountryBrackets(TILES, GROUPS, { force: true });
 }
 function fitScene(){
@@ -798,7 +824,19 @@ function rollDiceAndBroadcast(p){
 function msUntilDiceDone(startAt){
   return Math.max(0,(startAt||Date.now())+DICE_ROLL_MS-Date.now());
 }
-function renderAll(){
+function renderAll(opts = {}) {
+  if (opts.immediate) {
+    renderAllNow();
+    return;
+  }
+  if (renderAllRaf) return;
+  renderAllRaf = requestAnimationFrame(() => {
+    renderAllRaf = 0;
+    renderAllNow();
+  });
+}
+
+function renderAllNow() {
   renderPlayers();
   renderPortfolioCard();
   renderActionsCard();
@@ -806,7 +844,9 @@ function renderAll(){
   renderDock();
   renderTradeCard();
   renderPot();
-  if (isMultiplayerActive() && !isApplyingRemote()) queueStateBroadcast();
+  if (isMultiplayerActive() && !isApplyingRemote() && animatingPlayers.size === 0) {
+    queueStateBroadcast();
+  }
 }
 function localHumanPlayer(){
   if (S.spectating) return null;
@@ -1052,6 +1092,39 @@ function ensureTurnTimer(){
     checkVoteKick();
   },500);
 }
+function renderTokens() {
+  TILES.forEach(t => {
+    if (!t.el) return;
+    const tok = t.el.querySelector('.tokens');
+    if (tok) tok.innerHTML = '';
+    t.el.classList.remove('landed');
+  });
+  const atPos = {};
+  S.players.forEach(p => {
+    if (!p.dead) {
+      if (!atPos[p.pos]) atPos[p.pos] = [];
+      atPos[p.pos].push(p);
+    }
+  });
+  Object.entries(atPos).forEach(([pos, group]) => {
+    const tile = TILES[+pos];
+    if (!tile?.el) return;
+    tile.el.style.setProperty('--land', group.length === 1 ? group[0].color : '#F2C66B');
+    tile.el.classList.add('landed');
+    group.forEach((p, i) => {
+      const pi = S.players.findIndex(x => x.id === p.id);
+      const tk = document.createElement('span');
+      tk.className = `tk tk--${pi % 6}` + (group.length > 1 ? ' tk--multi' : '') + (pi === S.turn ? ' tk--turn' : '');
+      tk.style.setProperty('--tk-color', p.color);
+      tk.dataset.idx = String(i);
+      tk.dataset.total = String(group.length);
+      tk.textContent = p.emoji;
+      tk.title = `${p.name} · ${tile.name}`;
+      tile.el.querySelector('.tokens').appendChild(tk);
+    });
+  });
+}
+
 function renderTiles(){
   TILES.forEach(t=>{
     if(!t.el)return;
@@ -1290,7 +1363,7 @@ function log(html,p,meta={}){
   }
   logEl.prepend(d);
   while(logEl.children.length>90)logEl.lastChild.remove();
-  renderHubActivity();
+  scheduleHubActivity();
   if (isMultiplayerActive() && !isApplyingRemote() && !S.spectating) {
     broadcastGameLog(html, p?.color, meta);
   }
@@ -1754,10 +1827,12 @@ function animateMove(p,steps,done){
     && (mayControlTurn(p) || (p.bot && localRunsBots()));
   if (shouldBroadcast) broadcastPlayerMove(p.userId, steps, Date.now() + 80);
   animatingPlayers.add(p.id);
+  setMpBroadcastPaused(true);
   const dir=steps<0?-1:1;let left=Math.abs(steps);
   const step=()=>{
     if(left===0){
       animatingPlayers.delete(p.id);
+      if (animatingPlayers.size === 0) setMpBroadcastPaused(false);
       done();
       return;
     }
@@ -1770,7 +1845,9 @@ function animateMove(p,steps,done){
       playTileCashFx(TILES[0],S.rules.salary,{color:p.color});
       renderPlayers();
     }
-    left--;renderTiles();setTimeout(step,130);
+    left--;
+    renderTokens();
+    setTimeout(step, 110);
   };step();
 }
 function moveBy(s,n){animateMove(s.cur,n,()=>resolveTile(s.cur,{fromCard:true}));}

@@ -77,6 +77,8 @@ const rooms = new Map();
 const roomSubs = new Map();
 const lobbySubs = new Set();
 let lobbyBroadcastTimer = null;
+const roomStateFlush = new Map();
+const ROOM_STATE_FLUSH_MS = 85;
 const profiles = new Map();
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
@@ -827,8 +829,28 @@ function broadcastGameState(roomId, state, fromWs, fromUserId) {
       }
     }
   }
+  let pending = roomStateFlush.get(roomId);
+  if (!pending) {
+    pending = { fromWs, fromUserId, timer: null };
+    roomStateFlush.set(roomId, pending);
+  }
+  pending.state = state;
+  pending.fromWs = fromWs;
+  pending.fromUserId = fromUserId;
+  if (pending.timer) return;
+  pending.timer = setTimeout(() => flushGameStateBroadcast(roomId), ROOM_STATE_FLUSH_MS);
+}
+
+function flushGameStateBroadcast(roomId) {
+  const pending = roomStateFlush.get(roomId);
+  if (!pending) return;
+  pending.timer = null;
+  const room = rooms.get(roomId);
+  const state = pending.state;
+  const fromWs = pending.fromWs;
+  const fromUserId = pending.fromUserId;
   const subs = roomSubs.get(roomId);
-  if (!subs) return;
+  if (!subs || !state) return;
   const seq = room?.stateSeq || Date.now();
   const payload = JSON.stringify({
     type: 'game_state',
