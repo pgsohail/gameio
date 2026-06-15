@@ -127,6 +127,13 @@ const FORTUNE=[
   {x:'Charter a boat party for the table. Pay every player $20.',f:s=>payEach(s,20)},
   {x:'Wrong terminal! Walk back 2 tiles.',f:s=>moveBy(s,-2)},
   {x:'A tailor in the bazaar overcharges you. Pay $30.',f:s=>charge(s,30)},
+  {x:'Flash sale on duty-free — collect $45.',f:s=>credit(s,45)},
+  {x:'Missed your connection. Go back 4 tiles.',f:s=>moveBy(s,-4)},
+  {x:'Lucky seat upgrade — collect $80.',f:s=>credit(s,80)},
+  {x:'Mystery envelope under your seat — collect $110.',f:s=>credit(s,110)},
+  {x:'Airport lounge overstay fee. Pay $65.',f:s=>charge(s,65)},
+  {x:'You find a forgotten travel wallet. Collect $35.',f:s=>credit(s,35)},
+  {x:'Detour through customs. Wait — advance 2 tiles.',f:s=>moveBy(s,2)},
 ];
 const TREASURY=[
   {x:'City bond matures. Collect $150.',f:s=>credit(s,150)},
@@ -149,6 +156,13 @@ const TREASURY=[
   {x:'Sell your travel photos to a magazine. Collect $85.',f:s=>credit(s,85)},
   {x:'A grateful tourist tips you for directions. Collect $15.',f:s=>credit(s,15)},
   {x:'Sponsor the Vacation fireworks. Pay $75.',f:s=>charge(s,75)},
+  {x:'Heritage grant approved. Collect $110.',f:s=>credit(s,110)},
+  {x:'Tour guide tip jar — collect $55.',f:s=>credit(s,55)},
+  {x:'Lost passport rush fee. Pay $90.',f:s=>charge(s,90)},
+  {x:'Rental refund surprise. Collect $65.',f:s=>credit(s,65)},
+  {x:'Charity gala donation. Pay $45.',f:s=>charge(s,45)},
+  {x:'Jackpot on a scratch ticket. Collect $125.',f:s=>credit(s,125)},
+  {x:'Visa extension paperwork. Pay $35.',f:s=>charge(s,35)},
 ];
 function priciest(){let bi=0,bp=-1;TILES.forEach((t,i)=>{if(t.type==='city'&&t.price>bp){bp=t.price;bi=i;}});return bi;}
 function cheapest(){let bi=0,bp=1e9;TILES.forEach((t,i)=>{if(t.type==='city'&&t.price<bp){bp=t.price;bi=i;}});return bi;}
@@ -213,6 +227,9 @@ function exportGameState() {
       dead: p.dead,
       debt: p.debt ? { ...p.debt } : null,
       powerCards: p.powerCards ? [...p.powerCards] : [],
+      publicPowers: p.publicPowers ? [...p.publicPowers] : [],
+      freeRide: !!p.freeRide,
+      landRush: !!p.landRush,
       rentSurge: p.rentSurge,
       taxShield: p.taxShield,
       turnsSurvived: p.turnsSurvived || 0,
@@ -255,6 +272,7 @@ function exportGameState() {
     })),
     tradeArchive: (S.tradeArchive || []).map(a => ({ ...a })),
     tradeSeq,
+    powerCelebrate: S.powerCelebrate ? { ...S.powerCelebrate } : null,
   };
 }
 
@@ -264,6 +282,8 @@ const animatingPlayers = new Set();
 let renderAllRaf = 0;
 let hubActivityRaf = 0;
 let fitSceneTimer = 0;
+let lastPowerCelebrateSeq = 0;
+let powerCelebrateDismiss = null;
 
 function ingestRemoteGameLog(entry) {
   if (!entry?.html) return;
@@ -340,6 +360,9 @@ function importGameState(state) {
       isAdmin: !!sp.isAdmin,
       debt: sp.debt,
       powerCards: sp.powerCards || [],
+      publicPowers: sp.publicPowers || [],
+      freeRide: !!sp.freeRide,
+      landRush: !!sp.landRush,
       rentSurge: sp.rentSurge,
       taxShield: sp.taxShield,
       turnsSurvived: sp.turnsSurvived || 0,
@@ -387,6 +410,16 @@ function importGameState(state) {
     }
   }
   restoreAuctionState(state.auction);
+  if (state.powerCelebrate?.seq && state.powerCelebrate.seq !== lastPowerCelebrateSeq) {
+    lastPowerCelebrateSeq = state.powerCelebrate.seq;
+    const p = S.players[state.powerCelebrate.playerId];
+    const def = powerCardById(state.powerCelebrate.cardId);
+    if (p && def) {
+      const me = localHuman();
+      const isLocal = me && p.userId === me.id;
+      if (!isLocal) showPowerCelebrate(p, def, null, { remote: true });
+    }
+  }
   if (Date.now() >= remoteRollUntil) {
     Dice3D.setValues(S.dice[0], S.dice[1], false);
   }
@@ -601,6 +634,9 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
       dead: false,
       debt: null,
       powerCards: [],
+      publicPowers: [],
+      freeRide: false,
+      landRush: false,
       rentSurge: false,
       taxShield: false,
       turnsSurvived: 0,
@@ -839,6 +875,7 @@ function renderAll(opts = {}) {
 function renderAllNow() {
   renderPlayers();
   renderPortfolioCard();
+  renderPowerHudCard();
   renderActionsCard();
   renderTiles();
   renderDock();
@@ -879,8 +916,9 @@ function renderPlayers(){
     const loc=!p.dead&&TILES[p.pos]?playerTileLabel(p):'';
     const crown=p.isAdmin?'<span class="p-crown" title="Room admin">👑</span>':'';
     const botBadge=p.bot&&!p.humanoid?'<span class="p-bot" aria-hidden="true">🤖</span>':'';
-    const powerBadge=S.rules.powerCards&&p.powerCards?.length
-      ?`<span class="p-power-badge" title="${p.powerCards.length} power card${p.powerCards.length>1?'s':''}">🃏 ${p.powerCards.length}</span>`:'';
+    const pub=(p.publicPowers||[]).map(id=>powerCardById(id)?.emoji).filter(Boolean);
+    const powerBadge=S.rules.powerCards&&pub.length
+      ?`<span class="p-power-badge" title="Power card${pub.length>1?'s':''} held">${pub.join('')}</span>`:'';
     return `<div class="player-row${i===S.turn&&!p.dead?' current':''}${p.dead?' dead':''}${p.debt?' player-row--debt':''}${p.humanoid?' player-row--humanoid':''}" style="--pc:${p.color}">
       <span class="p-av p-av--${i%6}${p.humanoid?' p-av--humanoid':''}">${p.emoji}</span>
       <span class="p-info">
@@ -912,6 +950,45 @@ function portfolioBuildBadge(p,t){
   }
   return houseTag;
 }
+function renderPowerHudCard(){
+  const card=$('powerHudCard');
+  if(!card)return;
+  const on=S.rules.powerCards&&!S.over;
+  card.classList.toggle('hidden',!on);
+  if(!on)return;
+  const me=localHumanPlayer();
+  const mine=$('powerHudMine');
+  const others=$('powerHudOthers');
+  if(mine){
+    const canPlay=me&&canPlayPowerNow(me);
+    if(!me?.powerCards?.length){
+      mine.innerHTML='<p class="power-hud-empty">No cards yet — draw from Surprise or Treasury.</p>';
+    }else{
+      const counts={};
+      me.powerCards.forEach(id=>{counts[id]=(counts[id]||0)+1;});
+      mine.innerHTML=Object.entries(counts).map(([id,n])=>{
+        const def=powerCardById(id);
+        if(!def)return '';
+        return `<button type="button" class="power-hud-chip power-hud-chip--${def.rarity}${canPlay?'':' power-hud-chip--locked'}" data-pid="${id}" title="${tradeEsc(def.desc)}"${canPlay?'':' disabled'}>
+          <span>${def.emoji}</span><span class="power-hud-chip__name">${tradeEsc(def.name)}${n>1?` ×${n}`:''}</span>
+        </button>`;
+      }).join('');
+      mine.querySelectorAll('.power-hud-chip:not([disabled])').forEach(btn=>{
+        btn.onclick=()=>beginPowerCardUse(me,btn.dataset.pid);
+      });
+    }
+  }
+  if(others){
+    const rows=S.players.filter(p=>!p.dead&&(p.publicPowers?.length)>0&&p.id!==me?.id).map(p=>{
+      const chips=(p.publicPowers||[]).map(id=>{
+        const def=powerCardById(id);
+        return def?`<span class="power-hud-reveal" title="${tradeEsc(def.name)} — ${tradeEsc(def.desc)}">${def.emoji}</span>`:'';
+      }).join('');
+      return `<div class="power-hud-other"><span class="power-hud-other__av" style="--pc:${p.color}">${p.emoji}</span><span>${tradeEsc(p.name)}</span><span class="power-hud-other__cards">${chips}</span></div>`;
+    }).join('');
+    others.innerHTML=rows||'<p class="power-hud-empty power-hud-empty--dim">No rivals holding power cards.</p>';
+  }
+}
 function renderPortfolioCard(){
   const card=$('portfolioCard');
   if(!card)return;
@@ -923,31 +1000,42 @@ function renderPortfolioCard(){
   const netEl=$('portfolioNet');
   const cashEl=$('portfolioCash');
   const list=$('portfolioList');
-  const tiles=ownedBy(p).slice().sort((a,b)=>{
-    const ga=a.group||'',gb=b.group||'';
-    return ga.localeCompare(gb)||a.name.localeCompare(b.name);
-  });
+  const tiles=ownedBy(p);
   const n=tiles.length;
-  if(countEl)countEl.textContent=n===1?'1 property owned':`${n} properties owned`;
+  if(countEl)countEl.textContent=n?`${n} owned`:'None yet';
   if(netEl)netEl.textContent=fmt(netWorth(p));
-  if(cashEl)cashEl.textContent=`${fmt(p.cash)} cash`;
+  if(cashEl)cashEl.textContent=fmt(p.cash);
   if(!list)return;
-  if(!tiles.length){
-    list.innerHTML='<li class="portfolio-empty">No properties yet — roll and buy!</li>';
+  if(!n){
+    list.innerHTML='<p class="portfolio-empty">Roll and buy cities to build your empire.</p>';
     return;
   }
-  list.innerHTML=tiles.map(t=>{
-    const iso=t.iso||GROUPS[t.group]?.iso;
-    const flag=iso?flagTileHTML(iso,24):`<span class="portfolio-flag-fallback">${GROUPS[t.group]?.flag||'🌐'}</span>`;
-    const label=t.name.length>28?t.name.slice(0,27)+'…':t.name;
-    const build=portfolioBuildBadge(p,t);
-    return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" data-idx="${t.idx}" role="button" tabindex="0">
-      <span class="portfolio-flag">${flag}</span>
-      <span class="portfolio-item__main">
-        <span class="portfolio-item__name">${label}</span>
-        ${build?`<span class="portfolio-item__meta">${build}</span>`:''}
-      </span>
-    </li>`;
+  const groupIds=[...new Set(tiles.map(t=>t.group).filter(Boolean))].sort();
+  list.innerHTML=groupIds.map(gid=>{
+    const grp=GROUPS[gid]||{name:'Set',flag:'🌐'};
+    const all=groupTiles(gid);
+    const mine=all.filter(t=>t.owner===p.id);
+    const need=all.length-mine.length;
+    const mono=ownsGroup(p,gid);
+    const rivals=all.filter(t=>t.owner!=null&&t.owner!==p.id).map(t=>{
+      const o=S.players[t.owner];
+      return o?`<span class="portfolio-rival" title="${tradeEsc(o.name)} · ${tradeEsc(t.name)}">${o.emoji}</span>`:'';
+    }).join('');
+    const open=all.filter(t=>t.owner==null).length;
+    return `<section class="portfolio-group${mono?' portfolio-group--mono':''}">
+      <div class="portfolio-group__head">
+        <span class="portfolio-group__name">${grp.flag||''} ${tradeEsc(grp.name)}</span>
+        <span class="portfolio-group__prog">${mine.length}/${all.length}${mono?' ✓':need?` · ${need} to monopoly`:''}</span>
+      </div>
+      ${rivals||open?`<p class="portfolio-group__meta">${rivals?`Held: ${rivals}`:''}${open?`${rivals?' · ':''}${open} open`:''}</p>`:''}
+      <ul class="portfolio-group__list">${mine.map(t=>{
+        const build=portfolioBuildBadge(p,t);
+        const label=t.name.length>22?t.name.slice(0,21)+'…':t.name;
+        return `<li class="portfolio-item${t.mortgaged?' portfolio-item--mort':''}" data-idx="${t.idx}" role="button" tabindex="0">
+          <span class="portfolio-item__name">${label}</span>${build?`<span class="portfolio-item__meta">${build}</span>`:''}
+        </li>`;
+      }).join('')}</ul>
+    </section>`;
   }).join('');
   list.querySelectorAll('.portfolio-item').forEach(el=>{
     el.onclick=()=>openPropDetail(+el.dataset.idx);
@@ -1057,7 +1145,7 @@ function renderActionsCard(){
         hint.classList.add('turn-timer__hint--urgent');
       }else if(left<=TURN_ENGAGE_WARN_MS){
         hint.textContent='Keep playing — time running out.';
-      }else hint.textContent='Turn timer running.';
+      }else hint.textContent='Turn timer — 2 min limit.';
     }else if(left<=TURN_ENGAGE_WARN_MS&&!cur?.turnEngaged){
       hint.textContent=`${cur?.name||'Player'} must move soon.`;
     }else hint.textContent=`${cur?.name||'Player'}'s turn.`;
@@ -1564,6 +1652,12 @@ function nearestAirport(s){let i=s.cur.pos;do{i=(i+1)%N;}while(TILES[i].type!=='
 
 function payTo(payer,creditor,amount,tile){
   if(payer.dead)return;
+  if(creditor&&amount>0&&payer.freeRide){
+    payer.freeRide=false;
+    log(`🎫 <b>${payer.name}</b>'s Free Ride waives rent to <b>${creditor.name}</b>.`,payer);
+    renderPlayers();
+    return;
+  }
   if(!creditor&&amount>0&&payer.taxShield){
     payer.taxShield=false;
     log(`🛡️ <b>${payer.name}</b>'s Tax Shield blocks ${fmt(amount)}.`,payer);
@@ -1927,10 +2021,16 @@ function computeRent(t,opts={}){
 function buyCurrent(p){
   if(!mayControlTurn(p))return false;
   const t=TILES[p.pos];
-  if(t.owner!=null||!t.price||p.cash<t.price)return false;
+  if(t.owner!=null||!t.price)return false;
+  let price=t.price;
+  if(p.landRush){
+    price=Math.floor(price*0.85);
+    p.landRush=false;
+  }
+  if(p.cash<price)return false;
   const groupsBefore=new Set(ownedGroupIds(p));
-  p.cash-=t.price;t.owner=p.id;t.houses=0;t.mortgaged=false;
-  log(`🏷️ <b>${p.name}</b> buys <b>${t.name}</b> for $${t.price.toLocaleString()}.`,p);
+  p.cash-=price;t.owner=p.id;t.houses=0;t.mortgaged=false;
+  log(`🏷️ <b>${p.name}</b> buys <b>${t.name}</b> for ${fmt(price)}${price<t.price?' (Land Rush discount)':''}.`,p);
   renderAll();
   playPurchaseTing();
   playPurchaseGlow(t,p.color);
@@ -1996,28 +2096,56 @@ function jailRoll(p){
 function removePowerCard(p,cardId){
   const i=p.powerCards.indexOf(cardId);
   if(i>=0)p.powerCards.splice(i,1);
+  const j=(p.publicPowers||[]).indexOf(cardId);
+  if(j>=0)p.publicPowers.splice(j,1);
+}
+function showPowerCelebrate(p,def,onDone,{remote=false}={}){
+  const overlay=$('powerCelebrateOverlay');
+  if(!overlay||!def)return;
+  const me=localHuman();
+  const isOwner=me&&p.userId&&me.id===p.userId;
+  $('powerCelebrateWho').textContent=`${p.emoji} ${p.name} draws a power card!`;
+  $('powerCelebrateEmoji').textContent=def.emoji;
+  $('powerCelebrateName').textContent=def.name;
+  $('powerCelebrateDesc').textContent=def.desc;
+  $('powerCelebrateNote').textContent=isOwner
+    ?'Tap anywhere to continue your turn.'
+    :'Everyone sees this card until it is played.';
+  overlay.classList.remove('hidden');
+  overlay.classList.toggle('power-celebrate--mine',!!isOwner);
+  if(powerCelebrateDismiss)clearTimeout(powerCelebrateDismiss);
+  const finish=()=>{
+    if(powerCelebrateDismiss){clearTimeout(powerCelebrateDismiss);powerCelebrateDismiss=null;}
+    overlay.classList.add('hidden');
+    S.powerCelebrate=null;
+    if(isMpGame())broadcastStateNow();
+    onDone?.();
+  };
+  overlay.onclick=()=>{ if(isOwner)finish(); };
+  if(!isOwner||remote){
+    powerCelebrateDismiss=setTimeout(finish,3800);
+  }
+  if(p.bot)powerCelebrateDismiss=setTimeout(finish,1800);
 }
 function awardPowerCard(p,deck,again){
   const def=pickRandomPowerCard();
   p.powerCards.push(def.id);
-  $('powerAwardIcon').textContent=def.emoji;
-  $('powerAwardName').textContent=def.name;
-  $('powerAwardDesc').textContent=def.desc;
-  $('powerAwardModal').classList.remove('hidden');
-  log(`🃏 <b>${p.name}</b> uncovers a rare <b>${def.name}</b> ${def.emoji} from ${deck==='fortune'?'Surprise':'Treasure'}!`,p);
-  let done=false;
-  const finish=()=>{
-    if(done)return;
-    done=true;
-    $('powerAwardModal').classList.add('hidden');
+  p.publicPowers=p.publicPowers||[];
+  p.publicPowers.push(def.id);
+  const seq=Date.now();
+  S.powerCelebrate={playerId:p.id,cardId:def.id,seq};
+  lastPowerCelebrateSeq=seq;
+  const me=localHuman();
+  const isLocal=me&&p.userId===me.id;
+  showPowerCelebrate(p,def,()=>{
     renderAll();
     if(!S.over)finishMovePhase(p,again);
-  };
-  bindTapDismiss('powerAwardModal',finish);
-  if(p.bot)setTimeout(finish,1600);
+  },{remote:!isLocal});
+  log(`🃏 <b>${p.name}</b> uncovers a rare <b>${def.name}</b> ${def.emoji} from ${deck==='fortune'?'Surprise':'Treasure'}!`,p);
+  if(isMpGame())broadcastStateNow();
 }
 function canPlayPowerNow(p){
-  return S.rules.powerCards&&!p.bot&&!p.dead&&S.cur.id===p.id&&(S.phase==='roll'||S.phase==='end');
+  return S.rules.powerCards&&!p.bot&&!p.dead&&isMyTurn()&&(S.phase==='roll'||S.phase==='end');
 }
 function powerTargets(p,cardId){
   if(cardId==='demolition'){
@@ -2102,6 +2230,30 @@ function applyPowerCard(p,cardId,targetIdx){
       resolveTile(p,{fromCard:true});
       return;
     }
+    case 'bailout':
+      p.cash+=120;
+      log(`🏦 <b>${p.name}</b> plays <b>Emergency Bailout</b> — collects ${fmt(120)}.`,p);
+      renderAll();
+      return;
+    case 'insider_tip':{
+      const fTop=S.fortune[0]?.x?.slice(0,48)||'Surprise';
+      const tTop=S.treasury[0]?.x?.slice(0,48)||'Treasury';
+      p.cash+=90;
+      log(`📡 <b>${p.name}</b> plays <b>Insider Tip</b> — peeks both decks, pockets ${fmt(90)}.`,p);
+      log(`<span class="log-muted">Next Surprise: “${fTop}…” · Treasury: “${tTop}…”</span>`,p);
+      renderAll();
+      return;
+    }
+    case 'free_ride':
+      p.freeRide=true;
+      log(`🎫 <b>${p.name}</b> plays <b>Free Ride</b> — next rent payment is waived.`,p);
+      renderAll();
+      return;
+    case 'land_rush':
+      p.landRush=true;
+      log(`🏗️ <b>${p.name}</b> plays <b>Land Rush</b> — next city purchase is 15% off.`,p);
+      renderAll();
+      return;
     default:
       renderAll();
   }
@@ -2299,7 +2451,15 @@ function serializeAuction(){
   };
 }
 function setupAuctionModal(tile){
-  $('aucPropHead').innerHTML=`${propHeadHTML(tile)}<h3 class="auc-hero__name">${tile.name}</h3><div class="auc-hero__list">List price ${fmt(tile.price)}</div>`;
+  const card=$('aucPropCard');
+  if(card){
+    card.innerHTML=`<div class="auc-prop-card__visual">${propHeadHTML(tile)}</div>
+      <h3 class="auc-prop-card__name">${tradeEsc(tile.name)}</h3>
+      <p class="auc-prop-card__price">List price <strong>${fmt(tile.price)}</strong></p>
+      <div class="auc-prop-card__body">${propRentHTML(tile)||'<p class="auc-prop-card__special">Special tile</p>'}</div>
+      ${propFootHTML(tile)}`;
+  }
+  $('aucPropHead').innerHTML=`<span class="auc-hero__chip">${tileIcon(t)}</span><h3 class="auc-hero__name">${tradeEsc(tile.name)}</h3>`;
   $('aucRentPanel').innerHTML=`<div class="prop-rents">${propRentHTML(tile)||'<div class="prop-row"><span>Special tile</span><b>—</b></div>'}</div>${propFootHTML(tile)}`;
   $('aucHistory').innerHTML='';
   const lav0=$('aucLeadAv');

@@ -592,17 +592,26 @@
       <button type="button" class="spectate-banner__exit" id="spectateExitBtn">Exit</button>
     </div>
     <div id="hudLeft">
+      <div id="powerHudCard" class="glass power-hud-card hidden">
+        <div class="power-hud-head">
+          <h4 class="power-hud-title">🃏 Power cards</h4>
+          <p class="power-hud-sub">Play on your turn · rivals see cards until used</p>
+        </div>
+        <div id="powerHudMine" class="power-hud-mine"></div>
+        <div id="powerHudOthers" class="power-hud-others"></div>
+      </div>
       <div id="portfolioCard" class="glass portfolio-card hidden">
         <div class="portfolio-head">
-          <h4 class="portfolio-title">My properties</h4>
-          <p class="portfolio-owned" id="portfolioOwned">0 properties owned</p>
+          <h4 class="portfolio-title">Empire</h4>
           <div class="portfolio-stats">
-            <span class="portfolio-stat"><strong id="portfolioNet">$0</strong> net worth</span>
+            <span class="portfolio-stat"><strong id="portfolioOwned">0</strong> cities</span>
             <span class="portfolio-stat-sep">·</span>
-            <span class="portfolio-stat" id="portfolioCash">$0 cash</span>
+            <span class="portfolio-stat"><strong id="portfolioNet">$0</strong> net</span>
+            <span class="portfolio-stat-sep">·</span>
+            <span class="portfolio-stat" id="portfolioCash">$0</span>
           </div>
         </div>
-        <ul class="portfolio-list" id="portfolioList"></ul>
+        <div class="portfolio-list" id="portfolioList"></div>
       </div>
     </div>
     <div id="hudRight">
@@ -684,13 +693,14 @@
   </div>
 </div>
 
-<div class="overlay overlay--sheet hidden" id="powerAwardModal">
-  <div class="card-sheet card-sheet--power">
-    <span class="card-sheet__eyebrow">Rare find</span>
-    <span class="card-sheet__icon" id="powerAwardIcon" aria-hidden="true">🃏</span>
-    <h3 class="card-sheet__title" id="powerAwardName">Power card</h3>
-    <p class="card-sheet__text" id="powerAwardDesc"></p>
-    <span class="card-sheet__hint">Tap anywhere to continue</span>
+<div class="overlay overlay--celebrate hidden" id="powerCelebrateOverlay" role="dialog" aria-modal="true">
+  <div class="power-celebrate">
+    <p class="power-celebrate__burst" aria-hidden="true">✨🃏✨</p>
+    <p class="power-celebrate__who" id="powerCelebrateWho"></p>
+    <span class="power-celebrate__emoji" id="powerCelebrateEmoji"></span>
+    <h3 class="power-celebrate__name" id="powerCelebrateName"></h3>
+    <p class="power-celebrate__desc" id="powerCelebrateDesc"></p>
+    <p class="power-celebrate__note" id="powerCelebrateNote"></p>
   </div>
 </div>
 
@@ -728,35 +738,40 @@
       <span class="auc-chip">🔨 Live auction</span>
       <button type="button" class="modal-min-btn" id="aucMinBtn" title="Minimize">Minimize</button>
     </div>
-    <div class="auc-hero" id="aucPropHead"></div>
-    <div class="auc-bid-stage">
-      <div class="auc-bid-ring">
-        <div class="auc-bid-label">Highest bid</div>
-        <div class="auc-bid-amount" id="aucBid">$0</div>
-        <div class="auc-bid-leader">
-          <span class="auc-lead-av" id="aucLeadAv">—</span>
-          <span id="aucLeader">No bids yet</span>
+    <div class="auc-layout">
+      <div class="auc-layout__main">
+        <div class="auc-hero" id="aucPropHead"></div>
+        <div class="auc-bid-stage">
+          <div class="auc-bid-ring">
+            <div class="auc-bid-label">Highest bid</div>
+            <div class="auc-bid-amount" id="aucBid">$0</div>
+            <div class="auc-bid-leader">
+              <span class="auc-lead-av" id="aucLeadAv">—</span>
+              <span id="aucLeader">No bids yet</span>
+            </div>
+          </div>
+        </div>
+        <div class="auc-roster" id="aucPlayers"></div>
+        <div class="auc-status" id="aucStatus"></div>
+        <div class="auc-timer hidden" id="aucTimer" aria-live="polite">
+          <div class="auc-timer__track"><div class="auc-timer__fill" id="aucTimerFill"></div></div>
+          <span class="auc-timer__label" id="aucTimerLabel">10s to bid</span>
+        </div>
+        <div class="auc-actions" id="aucBtns">
+          <button class="btn auc-act" id="aucB10" type="button">+$10</button>
+          <button class="btn auc-act" id="aucB50" type="button">+$50</button>
+          <button class="btn auc-act" id="aucB100" type="button">+$100</button>
+          <button class="btn ghost auc-act auc-act--fold" id="aucFold" type="button">Fold</button>
+        </div>
+        <div class="auc-log-wrap">
+          <div class="auc-log-label">Bid history</div>
+          <div class="auc-log" id="aucHistory"></div>
         </div>
       </div>
-    </div>
-    <div class="auc-roster" id="aucPlayers"></div>
-    <div class="auc-status" id="aucStatus"></div>
-    <div class="auc-timer hidden" id="aucTimer" aria-live="polite">
-      <div class="auc-timer__track"><div class="auc-timer__fill" id="aucTimerFill"></div></div>
-      <span class="auc-timer__label" id="aucTimerLabel">10s to bid</span>
-    </div>
-    <div class="auc-actions" id="aucBtns">
-      <button class="btn auc-act" id="aucB10" type="button">+$10</button>
-      <button class="btn auc-act" id="aucB50" type="button">+$50</button>
-      <button class="btn auc-act" id="aucB100" type="button">+$100</button>
-      <button class="btn ghost auc-act auc-act--fold" id="aucFold" type="button">Fold</button>
-    </div>
-    <div class="auc-log-wrap">
-      <div class="auc-log-label">Bid history</div>
-      <div class="auc-log" id="aucHistory"></div>
+      <aside class="auc-layout__prop" id="aucPropCard" aria-label="Property at auction"></aside>
     </div>
     <details class="auc-rent-details">
-      <summary>Property details &amp; rent</summary>
+      <summary>Full rent table</summary>
       <div class="auc-rent-panel" id="aucRentPanel"></div>
     </details>
   </div></div>

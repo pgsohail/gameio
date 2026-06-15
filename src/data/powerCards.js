@@ -56,6 +56,34 @@ export const POWER_CARDS = [
     rarity: 'legendary',
     desc: 'Drain half the Vacation pot (or $100 minimum if the pot is empty).',
   },
+  {
+    id: 'insider_tip',
+    name: 'Insider Tip',
+    emoji: '📡',
+    rarity: 'rare',
+    desc: 'Peek the top Surprise and Treasury cards — keep the better one.',
+  },
+  {
+    id: 'free_ride',
+    name: 'Free Ride',
+    emoji: '🎫',
+    rarity: 'rare',
+    desc: 'Your next rent payment to another player is waived.',
+  },
+  {
+    id: 'land_rush',
+    name: 'Land Rush',
+    emoji: '🏗️',
+    rarity: 'epic',
+    desc: 'Buy the city you land on next for 15% off (must buy if unowned).',
+  },
+  {
+    id: 'bailout',
+    name: 'Emergency Bailout',
+    emoji: '🏦',
+    rarity: 'rare',
+    desc: 'Collect $120 from the bank instantly.',
+  },
 ];
 
 export const POWER_DRAW_CHANCE = 0.14;
