@@ -107,6 +107,7 @@
   <div id="lobbyWrap" class="lobby-shell">
     <!-- Home — centered hero (Richup-style) -->
     <section id="lobbyHome" class="lobby-hero">
+      <div class="lobby-hero__fold">
       <h1 class="lobby-hero__title">Buildup<span class="lobby-hero__accent">.io</span></h1>
       <p class="lobby-hero__tag">Own every street. Rule the board.</p>
 
@@ -163,6 +164,10 @@
         </div>
       </div>
 
+      <p class="lobby-scroll-hint" aria-hidden="true"><span>Scroll for rooms &amp; guide</span><span class="lobby-scroll-hint__chev">↓</span></p>
+      </div>
+
+      <div class="lobby-hero__below" id="lobbyBelowFold">
       <div id="spectateSection" class="home-rooms home-spectate hidden">
         <div class="home-rooms__head">
           <span class="home-rooms__title"><strong id="spectateLiveCount">0</strong> live · Spectate ongoing games<span class="home-rooms__live-dots home-rooms__live-dots--red" aria-hidden="true"></span></span>
@@ -250,6 +255,7 @@
         </nav>
         <p class="home-footer__copy">© Buildup.io — built for board-game addicts.</p>
       </footer>
+      </div>
     </section>
 
     <!-- Create room — split: main + advanced card -->

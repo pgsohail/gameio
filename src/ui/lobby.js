@@ -434,31 +434,24 @@ async function renderRoomList() {
       return;
     }
     list.innerHTML = openRooms.map(r => {
-      const humans = r.humans ?? r.slots?.filter(s => s && !s.bot).length ?? 0;
       const open = openSeatsInRoom(r);
       const total = r.maxPlayers || r.slots?.length || 4;
       const filled = total - open;
-      const fillPct = total ? Math.round((filled / total) * 100) : 0;
       const botHost = !!r.humanoidHosted;
       const cash = r.rules?.cash ?? 2000;
       return `
       <button type="button" class="room-card room-card--join${botHost ? ' room-card--bot-host' : ''}" data-room="${esc(r.id)}">
-        <div class="room-card__badge">${botHost ? '🧠 Bot host' : `${open} seat${open === 1 ? '' : 's'} open`}</div>
-        <div class="room-card__main">
-          <div class="room-card__top">
-            <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
-            <span class="room-card__board">🗺 ${esc(boardLabel(r.rules?.per))}</span>
+        <div class="room-card__head">
+          <span class="room-card__code">${esc(formatRoomCode(r.id))}${botHost ? '<span class="room-card__code-tag">Bot host</span>' : ''}</span>
+          <div class="room-card__sub">
+            <span>🗺 <strong>${esc(boardLabel(r.rules?.per))}</strong></span>
+            <span>${filled}/${total} · ${open} open</span>
           </div>
-          <div class="room-card__fill">
-            <div class="room-card__fill-track" aria-hidden="true"><span class="room-card__fill-bar" style="width:${fillPct}%"></span></div>
-            <span class="room-card__fill-label">${filled}/${total} travelers · ${humans} human${humans === 1 ? '' : 's'}</span>
-          </div>
-          <div class="room-card__slots">${slotAvatars(r.slots, total)}</div>
-          <div class="room-card__rules">${ruleIconsHtml(r.rules || {})}</div>
+          <div class="room-card__players">${slotAvatars(r.slots, total)}</div>
         </div>
-        <div class="room-card__aside">
+        <div class="room-card__foot">
           <span class="room-card__cash">${fmt(cash)}</span>
-          <span class="room-card__join">Join ›</span>
+          <span class="room-card__join-pill">Join</span>
         </div>
       </button>`;
     }).join('');
@@ -1857,12 +1850,12 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   $('homeAllRooms')?.addEventListener('click', () => {
     roomsPanelOpen = true;
     renderRoomList();
-    $('publicRoomsSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('lobbyBelowFold')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   $('homeSpectate')?.addEventListener('click', () => {
     spectatePanelOpen = true;
     renderRoomList();
-    $('spectateSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    $('lobbyBelowFold')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   $('spectateRefresh')?.addEventListener('click', () => {
     spectatePanelOpen = true;
