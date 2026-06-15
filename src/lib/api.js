@@ -83,6 +83,19 @@ export function connectRoomSocket(onMessage) {
   return ws;
 }
 
+export function connectLobbyFeedSocket(onMessage) {
+  const token = getToken();
+  const url = token
+    ? `${wsUrl()}?lobby=1&token=${encodeURIComponent(token)}`
+    : `${wsUrl()}?lobby=1`;
+  const ws = new WebSocket(url);
+  ws.onmessage = ev => {
+    try { onMessage(JSON.parse(ev.data)); } catch { /* ignore */ }
+  };
+  ws.onerror = () => { /* reconnect handled by caller */ };
+  return ws;
+}
+
 export function sendRoomSocket(ws, data) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   ws.send(JSON.stringify(data));

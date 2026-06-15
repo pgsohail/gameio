@@ -75,6 +75,8 @@ setInterval(() => {
 
 const rooms = new Map();
 const roomSubs = new Map();
+const lobbySubs = new Set();
+let lobbyBroadcastTimer = null;
 const profiles = new Map();
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
@@ -128,6 +130,7 @@ function secureRoomId() {
 }
 
 function pruneRooms() {
+  let changed = false;
   const now = Date.now();
   for (const [id, room] of rooms) {
     const occupied = room.slots.filter(Boolean).length;
@@ -135,6 +138,7 @@ function pruneRooms() {
       if (now - room.updatedAt > ROOM_TTL_MS * 2) {
         rooms.delete(id);
         roomSubs.delete(id);
+        changed = true;
       }
       continue;
     }
@@ -142,8 +146,10 @@ function pruneRooms() {
       clearBotHostedRoomId(id);
       rooms.delete(id);
       roomSubs.delete(id);
+      changed = true;
     }
   }
+  if (changed) scheduleLobbyBroadcast();
 }
 
 function occupiedCount(room) {
@@ -154,8 +160,7 @@ function publicRoomList() {
   pruneRooms();
   return [...rooms.values()]
     .filter(r => !r.private && r.status === 'lobby')
-    .filter(r => r.slots.some(s => !s))
-    .filter(r => humanCount(r) > 0 || r.humanoidHosted)
+    .filter(r => occupiedCount(r) > 0 || r.humanoidHosted)
     .sort((a, b) => {
       const openA = a.slots.filter(s => !s).length;
       const openB = b.slots.filter(s => !s).length;
@@ -528,15 +533,49 @@ function humanCount(room) {
   return room.slots.filter(s => s && !s.bot).length;
 }
 
+function lobbyRoomsPayload() {
+  maintainBotHostedRoom(rooms, humanCount, hoidCtx());
+  const live = liveActivityStats();
+  return {
+    type: 'lobby_rooms',
+    rooms: publicRoomList(),
+    spectateRooms: publicSpectateList(),
+    playingCount: live.publicPlaying,
+    live,
+  };
+}
+
+function broadcastLobbyRooms() {
+  if (!lobbySubs.size) return;
+  const payload = JSON.stringify(lobbyRoomsPayload());
+  for (const ws of lobbySubs) {
+    if (ws.readyState !== 1) {
+      lobbySubs.delete(ws);
+      continue;
+    }
+    try { ws.send(payload); } catch { lobbySubs.delete(ws); }
+  }
+}
+
+function scheduleLobbyBroadcast() {
+  if (lobbyBroadcastTimer) return;
+  lobbyBroadcastTimer = setTimeout(() => {
+    lobbyBroadcastTimer = null;
+    broadcastLobbyRooms();
+  }, 120);
+}
+
 function broadcastRoom(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
   const payload = JSON.stringify({ type: 'room_update', room: roomToClient(room) });
   const subs = roomSubs.get(roomId);
-  if (!subs) return;
-  for (const ws of subs) {
-    if (ws.readyState === 1) ws.send(payload);
+  if (subs) {
+    for (const ws of subs) {
+      if (ws.readyState === 1) ws.send(payload);
+    }
   }
+  scheduleLobbyBroadcast();
 }
 
 const LOBBY_CHAT_MAX = 120;
@@ -969,6 +1008,7 @@ app.post('/api/rooms/:id/leave', authMiddleware, (req, res) => {
   if (wasHost && !transferHost(room)) {
     rooms.delete(room.id);
     roomSubs.delete(room.id);
+    scheduleLobbyBroadcast();
     return res.json({ left: true, room: null });
   }
   syncLobbyFillers(room);
@@ -1152,13 +1192,24 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  const lobbyOnly = url.searchParams.get('lobby') === '1';
   const token = url.searchParams.get('token');
-  try {
-    ws.user = jwt.verify(token, JWT_SECRET);
-    ws.userId = ws.user.id;
-  } catch {
-    ws.close(4001, 'Unauthorized');
-    return;
+  if (lobbyOnly) {
+    ws.lobbyOnly = true;
+    if (token) {
+      try {
+        ws.user = jwt.verify(token, JWT_SECRET);
+        ws.userId = ws.user.id;
+      } catch { /* public lobby feed — token optional */ }
+    }
+  } else {
+    try {
+      ws.user = jwt.verify(token, JWT_SECRET);
+      ws.userId = ws.user.id;
+    } catch {
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
   }
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -1166,6 +1217,18 @@ wss.on('connection', (ws, req) => {
   ws.on('message', raw => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type === 'subscribe_lobby') {
+      lobbySubs.add(ws);
+      ws.lobbyFeed = true;
+      ws.send(JSON.stringify(lobbyRoomsPayload()));
+      return;
+    }
+    if (msg.type === 'unsubscribe_lobby') {
+      lobbySubs.delete(ws);
+      ws.lobbyFeed = false;
+      return;
+    }
+    if (ws.lobbyOnly) return;
     if (msg.type === 'subscribe' && msg.roomId) {
       const rid = String(msg.roomId).trim().toLowerCase();
       ws.roomId = rid;
@@ -1219,6 +1282,7 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    lobbySubs.delete(ws);
     if (ws.roomId) {
       const room = rooms.get(ws.roomId);
       if (room && ws.userId) markAbsent(room, ws.userId);
@@ -1227,7 +1291,10 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-setInterval(pruneRooms, 60_000);
+setInterval(() => {
+  pruneRooms();
+  scheduleLobbyBroadcast();
+}, 60_000);
 setInterval(processAbsentTimeouts, 5000);
 setInterval(() => {
   processHumanoidQueue(rooms, humanCount, hoidCtx());

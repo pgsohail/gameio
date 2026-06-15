@@ -6,7 +6,7 @@ import {
   onAuthChange, restoreSession, setRemember, signOut,
 } from '../lib/auth.js';
 import {
-  connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, sendRoomSocket, subscribeWhenOpen,
+  connectLobbyFeedSocket, connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, sendRoomSocket, subscribeWhenOpen,
 } from '../lib/api.js';
 import {
   enableMultiplayer, enableSpectator, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
@@ -387,7 +387,11 @@ function syncLobbySeatedFlag(room) {
 let cachedFakePlaying = 0;
 let fakePlayingUpdated = 0;
 let liveStatsTimer = null;
+let lobbyFeedSocket = null;
+let lobbyFeedReconnectTimer = null;
+let roomListFallbackTimer = null;
 const LIVE_STATS_POLL_MS = 2000;
+const ROOM_LIST_FALLBACK_MS = 12000;
 
 function rollFakePlayingCount() {
   if (Math.random() < 0.32) return 100 + Math.floor(Math.random() * 96);
@@ -455,11 +459,9 @@ async function refreshLiveStats() {
 function startLiveStatsPoll() {
   if (liveStatsTimer) clearInterval(liveStatsTimer);
   updateLiveActivityUI({});
-  updateRoomsSectionHeader({});
   refreshLiveStats();
   liveStatsTimer = setInterval(() => {
     refreshLiveStats();
-    updateRoomsSectionHeader(live);
   }, LIVE_STATS_POLL_MS);
 }
 
@@ -468,40 +470,96 @@ function stopLiveStatsPoll() {
   liveStatsTimer = null;
 }
 
-async function renderRoomList() {
+function shouldConnectLobbyFeed() {
+  if (document.hidden) return false;
+  const lobby = $('lobby');
+  if (!lobby || lobby.classList.contains('hidden')) return false;
+  if (!$('roomLobby')?.classList.contains('hidden')) return false;
+  if (gameStarted && !gameSpectating) return false;
+  return true;
+}
+
+function disconnectLobbyFeed() {
+  if (lobbyFeedReconnectTimer) {
+    clearTimeout(lobbyFeedReconnectTimer);
+    lobbyFeedReconnectTimer = null;
+  }
+  if (lobbyFeedSocket) {
+    sendRoomSocket(lobbyFeedSocket, { type: 'unsubscribe_lobby' });
+    lobbyFeedSocket.close();
+    lobbyFeedSocket = null;
+  }
+}
+
+function connectLobbyFeed() {
+  if (!shouldConnectLobbyFeed()) return;
+  if (lobbyFeedSocket
+    && (lobbyFeedSocket.readyState === WebSocket.OPEN
+      || lobbyFeedSocket.readyState === WebSocket.CONNECTING)) return;
+
+  disconnectLobbyFeed();
+  const ws = connectLobbyFeedSocket(msg => {
+    if (msg.type === 'lobby_rooms') applyLobbyRoomsData(msg);
+  });
+  lobbyFeedSocket = ws;
+  ws.onclose = () => {
+    lobbyFeedSocket = null;
+    if (shouldConnectLobbyFeed()) {
+      lobbyFeedReconnectTimer = setTimeout(connectLobbyFeed, 2000);
+    }
+  };
+  subscribeWhenOpen(ws, { type: 'subscribe_lobby' });
+}
+
+function startLobbyFeed() {
+  connectLobbyFeed();
+  renderRoomList();
+  if (roomListFallbackTimer) clearInterval(roomListFallbackTimer);
+  roomListFallbackTimer = setInterval(() => {
+    if (!$('lobbyHome')?.classList.contains('hidden')) renderRoomList();
+  }, ROOM_LIST_FALLBACK_MS);
+}
+
+function stopLobbyFeed() {
+  disconnectLobbyFeed();
+  if (roomListFallbackTimer) {
+    clearInterval(roomListFallbackTimer);
+    roomListFallbackTimer = null;
+  }
+}
+
+function applyLobbyRoomsData({ rooms = [], spectateRooms = [], live = {} } = {}) {
+  updateLiveActivityUI(live);
+  renderSpectateList(spectateRooms, live);
   const section = $('publicRoomsSection');
   const list = $('roomList');
   const empty = $('homeRoomsEmpty');
   if (!section || !list) return;
-  try {
-    const { rooms, spectateRooms = [], live = {} } = await roomsApi.list();
-    updateLiveActivityUI(live);
-    renderSpectateList(spectateRooms, live);
-    const lobbyRooms = (rooms || []).filter(isPublicLobbyRoom).sort((a, b) => {
-      const aj = openSeatsInRoom(a) > 0 ? 0 : 1;
-      const bj = openSeatsInRoom(b) > 0 ? 0 : 1;
-      if (aj !== bj) return aj - bj;
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
-    const show = roomsPanelOpen;
-    section.classList.toggle('home-all-rooms--open', show);
-    section.setAttribute('aria-hidden', show ? 'false' : 'true');
-    $('homeAllRooms')?.classList.toggle('home-sec--active', show);
-    empty?.classList.toggle('hidden', lobbyRooms.length > 0);
-    if (!show) return;
-    if (!lobbyRooms.length) {
-      list.innerHTML = '';
-      return;
-    }
-    list.innerHTML = lobbyRooms.map(r => {
-      const open = openSeatsInRoom(r);
-      const total = r.maxPlayers || r.slots?.length || 4;
-      const filled = total - open;
-      const botHost = !!r.humanoidHosted;
-      const cash = r.rules?.cash ?? 2000;
-      const canJoin = open > 0;
-      const waitLabel = canJoin ? `${open} open` : 'Starting soon';
-      return `
+  const lobbyRooms = (rooms || []).filter(isPublicLobbyRoom).sort((a, b) => {
+    const aj = openSeatsInRoom(a) > 0 ? 0 : 1;
+    const bj = openSeatsInRoom(b) > 0 ? 0 : 1;
+    if (aj !== bj) return aj - bj;
+    return (b.updatedAt || 0) - (a.updatedAt || 0);
+  });
+  const show = roomsPanelOpen;
+  section.classList.toggle('home-all-rooms--open', show);
+  section.setAttribute('aria-hidden', show ? 'false' : 'true');
+  $('homeAllRooms')?.classList.toggle('home-sec--active', show);
+  empty?.classList.toggle('hidden', lobbyRooms.length > 0);
+  if (!show) return;
+  if (!lobbyRooms.length) {
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = lobbyRooms.map(r => {
+    const open = openSeatsInRoom(r);
+    const total = r.maxPlayers || r.slots?.length || 4;
+    const filled = total - open;
+    const botHost = !!r.humanoidHosted;
+    const cash = r.rules?.cash ?? 2000;
+    const canJoin = open > 0;
+    const waitLabel = canJoin ? `${open} open` : 'Starting soon';
+    return `
       <button type="button" class="room-card room-card--join room-card--home${botHost ? ' room-card--bot-host' : ''}${canJoin ? '' : ' room-card--full'}" data-room="${esc(r.id)}"${canJoin ? '' : ' disabled'}>
         <div class="room-card__head">
           <span class="room-card__code">${roomCodeMarkup(r.id, { mini: true })}${botHost ? '<span class="room-card__code-tag">Bot</span>' : ''}</span>
@@ -510,10 +568,18 @@ async function renderRoomList() {
         </div>
         <span class="room-card__join-pill">${canJoin ? 'Join' : 'Full'}</span>
       </button>`;
-    }).join('');
-    list.querySelectorAll('.room-card:not([disabled])').forEach(btn => {
-      btn.onclick = () => joinRoom(btn.dataset.room);
-    });
+  }).join('');
+  list.querySelectorAll('.room-card:not([disabled])').forEach(btn => {
+    btn.onclick = () => joinRoom(btn.dataset.room);
+  });
+}
+
+async function renderRoomList() {
+  const section = $('publicRoomsSection');
+  if (!section) return;
+  try {
+    const data = await roomsApi.list();
+    applyLobbyRoomsData(data);
   } catch {
     if (roomsPanelOpen) section.classList.remove('hidden');
   }
@@ -582,6 +648,7 @@ async function spectateRoom(id) {
 
 function enterSpectate(room) {
   stopLiveStatsPoll();
+  stopLobbyFeed();
   stopLobbyPoll();
   gameSpectating = true;
   gameStarted = true;
@@ -746,6 +813,7 @@ function startFromPayload(payload) {
   if (!u || !onStartGame) return;
   stopLobbyPoll();
   stopLiveStatsPoll();
+  stopLobbyFeed();
   const adminId = payload.adminId ?? 0;
   const humanCount = payload.players.filter(p => !p.bot).length;
   const isMp = humanCount > 1;
@@ -847,11 +915,13 @@ function exitBoardLobby() {
   clearLobbyChat();
   document.body.classList.remove('game-active', 'spectator-mode');
   startLiveStatsPoll();
+  startLobbyFeed();
   renderRoomList();
 }
 
 function enterBoardLobby(room) {
   stopLiveStatsPoll();
+  stopLobbyFeed();
   currentRoomId = room.id;
   syncLobbySeatedFlag(room);
   prevSlotSnapshot = null;
@@ -2002,16 +2072,16 @@ export async function initLobby(startGame, boardStats, previewBoard) {
   cachedFakePlaying = rollFakePlayingCount();
   fakePlayingUpdated = Date.now();
   startLiveStatsPoll();
-
-  renderRoomList();
+  startLobbyFeed();
 
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshLiveStats();
+    if (!document.hidden) {
+      refreshLiveStats();
+      connectLobbyFeed();
+    } else {
+      disconnectLobbyFeed();
+    }
   });
-
-  setInterval(() => {
-    if (!$('lobbyHome')?.classList.contains('hidden')) renderRoomList();
-  }, 5000);
 
   const inRoom = await handleRoomDeepLink();
   if (!inRoom && $('roomLobby')?.classList.contains('hidden')) {
