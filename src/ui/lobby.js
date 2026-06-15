@@ -8,7 +8,7 @@ import {
   connectRoomSocket, getToken, markAbsentKeepalive, roomLink, roomsApi, sendRoomSocket, subscribeWhenOpen,
 } from '../lib/api.js';
 import {
-  enableMultiplayer, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
+  enableMultiplayer, enableSpectator, detachMultiplayer, handleSocketMessage, handleDiceRollMessage, applyGameState,
 } from '../lib/multiplayer.js';
 import { initAccount, renderHub, renderProfilePage } from './account.js';
 import { boardName, boardTagline } from '../lib/boards.js';
@@ -44,6 +44,7 @@ let roomsPanelOpen = false;
 let rulesSaveTimer = null;
 let gameStarted = false;
 let gameMultiplayer = false;
+let gameSpectating = false;
 let gamePausedAway = false;
 let wsReconnectTimer = null;
 let lobbyPollTimer = null;
@@ -197,17 +198,25 @@ function appendLobbyChatMessage(msg, { silent = false } = {}) {
   if (lobbyChatMessages.length > 100) lobbyChatMessages = lobbyChatMessages.slice(-100);
   renderLobbyChatFeed(true);
   if (!silent && !lobbyChatMuted && u && msg.userId !== u.id) playChatPing();
+  requestAnimationFrame(() => {
+    const feed = $('lobbyChatFeed');
+    if (feed) feed.scrollTop = feed.scrollHeight;
+  });
 }
 
 function syncLobbyChatCompose(canSend) {
-  lobbyCanSendChat = !!canSend;
+  lobbyCanSendChat = !!canSend && !gameSpectating;
   const input = $('lobbyChatInput');
   const send = $('lobbyChatForm')?.querySelector('.lobby-chat__send');
   if (input) {
-    input.disabled = !canSend;
-    input.placeholder = canSend ? 'Say something…' : 'Join the game to chat…';
+    input.disabled = !lobbyCanSendChat;
+    if (gameSpectating) {
+      input.placeholder = 'Spectators can read chat only…';
+    } else {
+      input.placeholder = canSend ? 'Say something…' : 'Join the game to chat…';
+    }
   }
-  if (send) send.disabled = !canSend;
+  if (send) send.disabled = !lobbyCanSendChat;
 }
 
 function showRoomChat(mode = 'lobby') {
@@ -222,6 +231,10 @@ function hideRoomChat() {
 }
 
 function refreshRoomChatAccess({ inRoom = false } = {}) {
+  if (gameSpectating) {
+    syncLobbyChatCompose(false);
+    return;
+  }
   const canSend = !!inRoom || (gameStarted && gameMultiplayer && !!currentRoomId);
   syncLobbyChatCompose(canSend);
 }
@@ -410,8 +423,9 @@ async function renderRoomList() {
   const empty = $('homeRoomsEmpty');
   if (!section || !list) return;
   try {
-    const { rooms, playingCount = 0, live = {} } = await roomsApi.list();
+    const { rooms, spectateRooms = [], playingCount = 0, live = {} } = await roomsApi.list();
     updateLiveActivityUI(live);
+    renderSpectateList(spectateRooms, live);
     const openRooms = (rooms || []).filter(r =>
       r.status === 'lobby' && (r.openSeats ?? r.slots?.filter(s => !s).length ?? 0) > 0,
     );
@@ -448,6 +462,107 @@ async function renderRoomList() {
   } catch {
     section.classList.add('hidden');
   }
+}
+
+let spectatePanelOpen = false;
+
+function renderSpectateList(rooms = [], live = {}) {
+  const section = $('spectateSection');
+  const list = $('spectateList');
+  const empty = $('spectateEmpty');
+  if (!section || !list) return;
+  const liveGames = rooms.filter(r => r.status === 'playing' && (r.humans ?? 0) > 0);
+  const count = live.publicPlaying ?? liveGames.length;
+  const countEl = $('spectateLiveCount');
+  if (countEl) countEl.textContent = String(count);
+  const show = spectatePanelOpen || liveGames.length > 0;
+  section.classList.toggle('hidden', !show);
+  empty?.classList.toggle('hidden', liveGames.length > 0);
+  if (!liveGames.length) {
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = liveGames.map(r => {
+    const humans = r.humans ?? 0;
+    const alive = r.alivePlayers ?? r.players?.length ?? 0;
+    const preview = (r.players || []).slice(0, 5).map(p =>
+      `<span class="room-card__av" style="--pc:${esc(p.color || '#888')}" title="${esc(p.name)}">${esc(p.emoji || '🚂')}</span>`,
+    ).join('');
+    return `
+      <button type="button" class="room-card room-card--spectate" data-spectate="${esc(r.id)}">
+        <div class="room-card__left">
+          <span class="room-card__id">${esc(formatRoomCode(r.id))}</span>
+          <span class="room-card__meta room-card__meta--live">🔴 LIVE · ${humans} human${humans === 1 ? '' : 's'} · ${alive} in game</span>
+          <div class="room-card__slots room-card__slots--preview">${preview}</div>
+        </div>
+        <div class="room-card__right">
+          <span class="room-card__mode">🗺 ${boardLabel(r.rules?.per)}</span>
+          <span class="room-card__spectate-btn">👁 Spectate</span>
+        </div>
+      </button>`;
+  }).join('');
+  list.querySelectorAll('[data-spectate]').forEach(btn => {
+    btn.onclick = () => spectateRoom(btn.dataset.spectate);
+  });
+}
+
+async function spectateRoom(id) {
+  const rid = String(id || '').trim().toLowerCase();
+  if (!rid) return;
+  const u = await ensureUserForRoom();
+  if (!u) return;
+  try {
+    const { room } = await roomsApi.spectate(rid);
+    enterSpectate(room);
+  } catch (e) {
+    alert(e.message === 'private'
+      ? 'This is a private game — you cannot spectate it.'
+      : (e.message || 'Could not join as spectator. The game may have ended.'));
+    renderRoomList();
+  }
+}
+
+function enterSpectate(room) {
+  stopLiveStatsPoll();
+  stopLobbyPoll();
+  gameSpectating = true;
+  gameStarted = true;
+  gameMultiplayer = true;
+  gamePausedAway = false;
+  currentRoomId = room.id;
+  prevSlotSnapshot = null;
+  persistRoomInUrl(room.id);
+  hideInviteCard();
+  $('lobby')?.classList.add('hidden');
+  $('hubTop')?.classList.add('hidden');
+  $('roomLobby')?.classList.add('hidden');
+  document.body.classList.remove('room-lobby-mode');
+  setGameBrandVisible(true);
+  showRoomChat('game');
+  refreshRoomChatAccess({ inRoom: false });
+  subscribeRoom(room.id);
+  const adminId = room.adminId ?? 0;
+  const players = (room.players || []).map((p, i) => ({
+    userId: p.userId,
+    name: p.name,
+    bot: !!p.bot,
+    humanoid: !!p.humanoid,
+    botBrain: p.botBrain || null,
+    emoji: p.emoji,
+    color: p.color,
+    isAdmin: i === adminId,
+  }));
+  onStartGame({
+    rules: room.rules,
+    players,
+    adminId,
+    multiplayer: true,
+    spectating: true,
+    skipStartTurn: !!room.gameState,
+  });
+  enableSpectator(roomSocket, room.id);
+  subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: room.id });
+  if (room.gameState) applyGameState(room.gameState);
 }
 
 function gatherRules() {
@@ -671,6 +786,7 @@ function exitBoardLobby() {
   sessionStorage.removeItem(ROOM_SESSION_KEY);
   hideRoomChat();
   clearLobbyChat();
+  document.body.classList.remove('game-active', 'spectator-mode');
   startLiveStatsPoll();
   renderRoomList();
 }
@@ -1183,7 +1299,10 @@ let pendingRejoinRoom = null;
 function resetGameSession() {
   gameStarted = false;
   gameMultiplayer = false;
+  gameSpectating = false;
   gamePausedAway = false;
+  $('spectateBanner')?.classList.add('hidden');
+  document.body.classList.remove('game-active', 'spectator-mode');
   $('hud')?.classList.add('hidden');
   $('scene')?.classList.add('hidden');
   $('roomLobby')?.classList.add('hidden');
@@ -1209,7 +1328,7 @@ export { setGameBrandVisible } from '../lib/gameShell.js';
 async function onPlayerLeftGame() {
   if (!gameStarted) return;
   const rid = currentRoomId;
-  if (rid) {
+  if (rid && !gameSpectating) {
     try { await roomsApi.leave(rid); } catch { /* room gone */ }
   }
   resetGameSession();
@@ -1732,6 +1851,20 @@ export async function initLobby(startGame, boardStats, previewBoard) {
     roomsPanelOpen = true;
     renderRoomList();
     $('publicRoomsSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  $('homeSpectate')?.addEventListener('click', () => {
+    spectatePanelOpen = true;
+    renderRoomList();
+    $('spectateSection')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  $('spectateRefresh')?.addEventListener('click', () => {
+    spectatePanelOpen = true;
+    renderRoomList();
+    $('spectateRefresh')?.classList.add('spin-once');
+    setTimeout(() => $('spectateRefresh')?.classList.remove('spin-once'), 600);
+  });
+  $('spectateExitBtn')?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('wt:player-left-game'));
   });
   $('lobbyBackCreate')?.addEventListener('click', () => showView('home'));
   $('gameBrand')?.addEventListener('click', handleBrandClick);

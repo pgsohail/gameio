@@ -3,6 +3,7 @@
 let roomId = null;
 let socket = null;
 let mpGame = false;
+let spectatorMode = false;
 let applyingRemote = false;
 let broadcastTimer = null;
 let lastRemoteSeq = 0;
@@ -35,7 +36,19 @@ export function isApplyingRemote() {
   return applyingRemote;
 }
 
+export function isSpectator() {
+  return spectatorMode;
+}
+
 export function enableMultiplayer(ws, id) {
+  spectatorMode = false;
+  mpGame = true;
+  socket = ws;
+  roomId = id;
+}
+
+export function enableSpectator(ws, id) {
+  spectatorMode = true;
   mpGame = true;
   socket = ws;
   roomId = id;
@@ -48,6 +61,7 @@ export function attachMultiplayer(ws, id) {
 
 export function detachMultiplayer() {
   mpGame = false;
+  spectatorMode = false;
   roomId = null;
   socket = null;
   clearTimeout(broadcastTimer);
@@ -102,7 +116,7 @@ export function handleSocketMessage(msg, myUserId) {
 }
 
 export function broadcastStateNow() {
-  if (applyingRemote || !mpGame || !exportStateFn || !roomId || !socket
+  if (spectatorMode || applyingRemote || !mpGame || !exportStateFn || !roomId || !socket
     || socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify({
     type: 'game_state',
@@ -113,7 +127,7 @@ export function broadcastStateNow() {
 }
 
 export function queueStateBroadcast() {
-  if (applyingRemote || !mpGame || !exportStateFn || !roomId || !socket
+  if (spectatorMode || applyingRemote || !mpGame || !exportStateFn || !roomId || !socket
     || socket.readyState !== WebSocket.OPEN) return;
   clearTimeout(broadcastTimer);
   broadcastTimer = setTimeout(broadcastStateNow, 40);

@@ -163,6 +163,34 @@ function publicRoomList() {
     .map(roomToClient);
 }
 
+function publicSpectateList() {
+  pruneRooms();
+  return [...rooms.values()]
+    .filter(r => !r.private && r.status === 'playing')
+    .filter(r => humanCount(r) > 0)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 24)
+    .map(room => {
+      const alive = (room.gameState?.players || []).filter(p => !p.dead).length
+        || (room.players || []).length;
+      return {
+        id: room.id,
+        status: 'playing',
+        rules: room.rules,
+        humans: humanCount(room),
+        alivePlayers: alive,
+        maxPlayers: room.maxPlayers,
+        updatedAt: room.updatedAt,
+        players: (room.players || []).map(p => ({
+          name: p.name,
+          emoji: p.emoji,
+          color: p.color,
+          bot: !!p.bot,
+        })),
+      };
+    });
+}
+
 function liveActivityStats() {
   pruneRooms();
   const playing = [...rooms.values()].filter(r => r.status === 'playing');
@@ -509,7 +537,7 @@ function broadcastRoom(roomId) {
 }
 
 const LOBBY_CHAT_MAX = 120;
-const LOBBY_CHAT_COOLDOWN_MS = 350;
+const LOBBY_CHAT_COOLDOWN_MS = 100;
 const lobbyChatCooldown = new Map();
 
 function sanitizeLobbyChatText(text) {
@@ -754,9 +782,28 @@ app.get('/api/rooms', (_req, res) => {
   const live = liveActivityStats();
   res.json({
     rooms: publicRoomList(),
+    spectateRooms: publicSpectateList(),
     playingCount: live.publicPlaying,
     live,
   });
+});
+
+app.get('/api/rooms/spectate/list', (_req, res) => {
+  res.json({ rooms: publicSpectateList(), live: liveActivityStats() });
+});
+
+app.post('/api/rooms/:id/spectate', authMiddleware, (req, res) => {
+  pruneRooms();
+  const room = rooms.get(String(req.params.id || '').trim().toLowerCase());
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.private) return res.status(403).json({ error: 'private', message: 'Private game' });
+  if (room.status !== 'playing') {
+    return res.status(400).json({ error: 'not_playing', message: 'This game is not in progress.' });
+  }
+  if (!humanCount(room)) {
+    return res.status(400).json({ error: 'empty', message: 'No active players in this room.' });
+  }
+  res.json({ room: roomToClient(room, req.user.id) });
 });
 
 app.get('/api/rooms/:id', authMiddleware, (req, res) => {

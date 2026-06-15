@@ -170,6 +170,7 @@ let botNudgeSince = 0;
 let turnTimeoutHandled = false;
 const tradeActivityLog = [];
 const S={players:[],turn:0,phase:'idle',dice:[1,1],doubles:0,fortune:[],treasury:[],pot:0,over:false,recentTrades:[],openTrades:[],tradeArchive:[],rules:{},
+  spectating:false,multiplayer:false,
   turnStartedAt:0,voteKick:{voters:[]},
   get cur(){return this.players[this.turn];}};
 
@@ -501,11 +502,14 @@ function assertMyTurn() {
   return isMyTurn();
 }
 
-export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false }) {
+export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = false, spectating = false, skipStartTurn = false }) {
   try {
     ensureBotsReady();
     const per = rules.per;
     S.multiplayer = !!multiplayer;
+    S.spectating = !!spectating;
+    document.body.classList.toggle('spectator-mode', S.spectating);
+    document.body.classList.toggle('game-active', true);
     S.rules = {
       ...rules,
       title: 'Buildup.io',
@@ -560,7 +564,14 @@ export function startGameFromLobby({ rules, players, adminId = 0, multiplayer = 
     const bb=$('bankruptBtn'); if(bb)bb.onclick=openBankruptConfirm;
     renderAll();
     log(`${S.rules.title} begins: ${N} tiles · ${S.players.length} travelers · ${fmt(S.rules.cash)} each.`);
-    startTurn();
+    if (S.spectating) {
+      $('spectateBanner')?.classList.remove('hidden');
+      $('hudLeaveMiniBtn')?.classList.remove('hidden');
+      if ($('hudLeaveMiniBtn')) $('hudLeaveMiniBtn').textContent = 'Exit';
+      renderDock();
+      return;
+    }
+    if (!skipStartTurn) startTurn();
   } catch (e) {
     console.error(e);
     throw e;
@@ -739,6 +750,7 @@ function renderAll(){
   if (isMultiplayerActive() && !isApplyingRemote()) queueStateBroadcast();
 }
 function localHumanPlayer(){
+  if (S.spectating) return null;
   const uid=getUser()?.id;
   if(uid)return S.players.find(p=>!p.bot&&p.userId===uid);
   return S.players.find(p=>!p.bot);
@@ -1026,6 +1038,11 @@ function renderTiles(){
 function renderDock(){
   const p=S.cur,ph=S.phase;
   if(!p)return;
+  if (S.spectating) {
+    ['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn']
+      .forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+    return;
+  }
   const me=localHuman();
   const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle('hidden',!on);};
   const jailing=ph==='jail';
@@ -1498,6 +1515,11 @@ function forfeitLocalHuman(){
   return true;
 }
 async function handleLeaveGameClick(){
+  if (S.spectating) {
+    if (!confirm('Stop spectating and return home?')) return;
+    document.dispatchEvent(new CustomEvent('wt:player-left-game'));
+    return;
+  }
   if(!confirm('Leave this game? You forfeit your properties and return to the home screen.'))return;
   forfeitLocalHuman();
   document.dispatchEvent(new CustomEvent('wt:player-left-game'));
@@ -1605,6 +1627,10 @@ function checkWin(){
 ============================================================ */
 function startTurn(){
   if(S.over)return;
+  if (S.spectating && isMpGame()) {
+    renderAll();
+    return;
+  }
   while(S.cur.dead)S.turn=(S.turn+1)%S.players.length;
   S.doubles=0;
   turnTimeoutHandled=false;

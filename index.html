@@ -54,7 +54,16 @@
     <div class="lobby-orbit" aria-hidden="true">
       <span>🏠</span><span>💰</span><span>✈️</span><span>🏨</span><span>💳</span><span>💡</span><span>🎲</span><span>🃏</span>
     </div>
+    <div class="lobby-aurora" aria-hidden="true"></div>
+    <div class="lobby-sparkles" aria-hidden="true"></div>
     <div class="lobby-particles"></div>
+    <div class="lobby-coins" aria-hidden="true">
+      <span class="lobby-coin lobby-coin--1">🪙</span>
+      <span class="lobby-coin lobby-coin--2">💎</span>
+      <span class="lobby-coin lobby-coin--3">🪙</span>
+      <span class="lobby-coin lobby-coin--4">✨</span>
+      <span class="lobby-coin lobby-coin--5">🪙</span>
+    </div>
   </div>
 
   <header class="hub-top" id="hubTop">
@@ -142,10 +151,22 @@
           <button type="button" class="home-sec" id="homeAllRooms">
             <span class="home-sec__ico" aria-hidden="true">👥</span> All rooms
           </button>
+          <button type="button" class="home-sec home-sec--spectate" id="homeSpectate">
+            <span class="home-sec__ico" aria-hidden="true">👁</span> Spectate live
+          </button>
           <button type="button" class="home-sec" id="lobbyNewRoom">
             <span class="home-sec__ico" aria-hidden="true">🔑</span> Private game
           </button>
         </div>
+      </div>
+
+      <div id="spectateSection" class="home-rooms home-spectate hidden">
+        <div class="home-rooms__head">
+          <span class="home-rooms__title"><strong id="spectateLiveCount">0</strong> live · Spectate ongoing games<span class="home-rooms__live-dots home-rooms__live-dots--red" aria-hidden="true"></span></span>
+          <button type="button" class="home-rooms__refresh" id="spectateRefresh" title="Refresh">↻</button>
+        </div>
+        <div class="room-list" id="spectateList"></div>
+        <p class="home-rooms__empty hidden" id="spectateEmpty">No public games in progress right now — start one with Play.</p>
       </div>
 
       <div id="publicRoomsSection" class="home-rooms hidden">
@@ -470,6 +491,11 @@
 </div>
 
 <div id="hud" class="hidden">
+    <div id="spectateBanner" class="spectate-banner hidden" role="status">
+      <span class="spectate-banner__dot" aria-hidden="true"></span>
+      <span class="spectate-banner__text">Spectating — read-only view</span>
+      <button type="button" class="spectate-banner__exit" id="spectateExitBtn">Exit</button>
+    </div>
     <div id="hudLeft">
       <div id="portfolioCard" class="glass portfolio-card hidden">
         <div class="portfolio-head">

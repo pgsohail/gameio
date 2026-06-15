@@ -44,6 +44,8 @@ export const storeApi = {
 
 export const roomsApi = {
   list: () => api('/api/rooms'),
+  spectateList: () => api('/api/rooms/spectate/list'),
+  spectate: id => api(`/api/rooms/${id}/spectate`, { method: 'POST' }),
   live: () => api('/api/live'),
   get: id => api(`/api/rooms/${id}`),
   create: body => api('/api/rooms', { method: 'POST', body: JSON.stringify(body) }),
