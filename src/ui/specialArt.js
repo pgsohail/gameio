@@ -1,4 +1,5 @@
 /** Shared SVG crests + theme keys for tiles and property modals. */
+import { brandFor } from '../lib/brandLogos.js';
 
 export function tileTheme(t) {
   if (t.type === 'air') {
@@ -6,10 +7,16 @@ export function tileTheme(t) {
     return { kind: 'air', variant: v, key: `air-${v}`, tag: 'Airport', accent: '#5BA8FF' };
   }
   if (t.type === 'utl') {
-    const k = t.utlKey || 'electric';
-    const tags = { electric: 'Power Co.', water: 'Water Co.', gas: 'Gas Co.', fiber: 'Fiber Net' };
-    const accents = { electric: '#FFD54F', water: '#64B5F6', gas: '#FF8A50', fiber: '#4DD0B8' };
-    return { kind: 'utl', variant: k, key: `utl-${k}`, tag: tags[k] || 'Utility', accent: accents[k] || '#90CAF9' };
+    const k = t.utlKey || 'apple';
+    const brand = brandFor(k);
+    const tags = { apple: 'Apple Inc.', google: 'Google', meta: 'Meta', nvidia: 'NVIDIA', tesla: 'Tesla' };
+    return {
+      kind: 'utl',
+      variant: k,
+      key: `utl-${k}`,
+      tag: tags[k] || brand?.name || 'Company',
+      accent: brand?.accent || '#90CAF9',
+    };
   }
   if (t.type === 'tax') {
     const premium = /premium/i.test(t.name);
@@ -104,23 +111,23 @@ export const CRESTS = {
     <rect x="34" y="36" width="12" height="10" rx="2" fill="currentColor" opacity=".45"/>
     <path stroke="currentColor" stroke-width="2.5" d="M10 64h60" opacity=".3"/>
   </svg>`,
-  'utl-electric': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
-    <path fill="currentColor" d="M46 10L24 46h18l-8 24 26-34H48z"/>
-    <circle cx="40" cy="40" r="30" fill="none" stroke="currentColor" stroke-width="2" opacity=".2"/>
+  'utl-apple': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
+    <path fill="currentColor" d="M52 18c-2.8 3.2-7.2 5.6-11.6 5.2-.5-4.2 1.6-8.6 4.4-11.4 2.8-3 7.4-5.2 11.2-5.4.4 4.4-1.2 8.8-4 11.6z"/>
+    <path fill="currentColor" d="M40 30c-9.2 0-16.8 7.6-16.8 17 0 13.4 10.8 24.2 16.8 24.2 6 0 16.8-10.8 16.8-24.2 0-9.4-7.6-17-16.8-17z"/>
   </svg>`,
-  'utl-water': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
-    <path fill="currentColor" d="M40 12C28 32 16 42 16 54a24 24 0 1048 0c0-12-12-22-24-42z"/>
-    <path fill="none" stroke="currentColor" stroke-width="2.5" opacity=".35" d="M28 52c4 6 10 6 12 0s8-6 12 0"/>
+  'utl-google': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
+    <path fill="currentColor" d="M58 36H36v10h14c-1.2 6-6.4 10-13 10-7.8 0-14-6.2-14-14s6.2-14 14-14c3.4 0 6.4 1.2 8.8 3.2l7.6-7.6C50.8 18.8 45.6 16 39 16 26.4 16 16 26.4 16 39s10.4 23 23 23c12 0 21.6-8.4 21.6-21 0-1.4-.2-2.8-.4-4z"/>
   </svg>`,
-  'utl-gas': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
-    <path fill="currentColor" d="M40 14c-11 13-20 22-20 36a20 20 0 1040 0c0-14-9-23-20-36z"/>
-    <path fill="currentColor" d="M40 30l8 14h-6l3 12-14-20h6z" opacity=".9"/>
+  'utl-meta': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
+    <path fill="currentColor" d="M18 44c0-12 8-22 18-22 6 0 10 4 14 10 4-6 8-10 14-10 10 0 18 10 18 22 0 14-10 24-18 24-6 0-10-4-14-10-4 6-8 10-14 10-8 0-18-10-18-24z"/>
   </svg>`,
-  'utl-fiber': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
-    <circle cx="40" cy="40" r="10" fill="currentColor"/>
-    <path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-      d="M40 16v10M40 54v10M16 40h10M54 40h10M24 24l7 7M49 49l7 7M56 24l-7 7M31 49l-7 7"/>
-    <circle cx="40" cy="40" r="26" fill="none" stroke="currentColor" stroke-width="2" opacity=".25"/>
+  'utl-nvidia': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
+    <path fill="currentColor" d="M16 48V32l24-8v48L16 48zm28-16v32l28-8V24l-28 8z"/>
+    <path fill="currentColor" opacity=".35" d="M16 52h56" stroke="currentColor" stroke-width="3"/>
+  </svg>`,
+  'utl-tesla': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
+    <path fill="currentColor" d="M40 14L22 22v6l18-6 18 6v-6L40 14zm-14 18v22l14 6 14-6V32H26z"/>
+    <path fill="currentColor" opacity=".4" d="M20 58h40" stroke="currentColor" stroke-width="4"/>
   </svg>`,
   'tax-earnings': `<svg viewBox="0 0 80 80" class="art-svg" aria-hidden="true">
     <rect x="20" y="14" width="40" height="52" rx="6" fill="none" stroke="currentColor" stroke-width="3"/>
@@ -186,7 +193,7 @@ export function crestFor(t) {
 export function modalSubtitle(t, groups) {
   if (t.type === 'city') return groups[t.group]?.name || 'Premium City';
   if (t.type === 'air') return 'International Airport · Rent from all travelers';
-  if (t.type === 'utl') return 'Utility Company · Rent scales with dice roll';
+  if (t.type === 'utl') return 'Fortune 500 company · Rent scales with dice roll';
   if (t.type === 'tax') return 'Mandatory Levy · Pay when you land here';
   if (t.type === 'fortune') return 'Draw a card · Fortune or misfortune awaits';
   if (t.type === 'treasury') return 'Community Chest · Collect a bonus';

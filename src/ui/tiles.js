@@ -1,4 +1,5 @@
 import { flagBadgeHTML, flagInlineHTML } from '../lib/flags.js';
+import { brandBadgeHTML, brandInlineHTML } from '../lib/brandLogos.js';
 import { fmt } from '../lib/format.js';
 import { cornerMeta, crestFor, tileTheme } from './specialArt.js';
 
@@ -59,7 +60,7 @@ export function buildTileParts(t) {
     return { inner: specialTileHTML(t, fmt(t.price)), outer: '' };
   }
   if (t.type === 'utl') {
-    return { inner: specialTileHTML(t, fmt(t.price)), outer: '' };
+    return { inner: specialTileHTML(t, fmt(t.price)), outer: brandBadgeHTML(t.utlKey, 34) };
   }
   if (t.type === 'tax') {
     return { inner: specialTileHTML(t, fmt(t.amount)), outer: '' };
@@ -104,7 +105,7 @@ function cornerTileHTML(t) {
 
 export function tileIcon(t) {
   if (t.type === 'air') return '✈️';
-  if (t.type === 'utl') return t.flag || '⚡';
+  if (t.type === 'utl') return brandInlineHTML(t.utlKey, 18);
   if (t.iso) return flagInlineHTML(t.iso, 18);
   return t.flag || '🌐';
 }

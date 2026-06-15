@@ -1,4 +1,5 @@
 import { flagModalHTML } from '../lib/flags.js';
+import { brandModalHTML } from '../lib/brandLogos.js';
 import { crestFor, modalSubtitle, tileTheme } from './specialArt.js';
 
 function esc(s) {
@@ -18,6 +19,12 @@ export function buildPropSheet(t, groups, bodyHTML, actionsHTML, opts = {}) {
     heroInner = `
       <div class="ps-hero__flag">${flagModalHTML(t.iso)}</div>
       <div class="ps-hero__orb"></div>`;
+  } else if (t.type === 'utl' && t.utlKey) {
+    heroInner = `
+      <div class="ps-hero__brand">${brandModalHTML(t.utlKey)}</div>
+      <div class="ps-hero__orb"></div>
+      <div class="ps-hero__spark ps-hero__spark--a"></div>
+      <div class="ps-hero__spark ps-hero__spark--b"></div>`;
   } else if (crest) {
     heroInner = `
       <div class="ps-hero__crest">${crest}</div>

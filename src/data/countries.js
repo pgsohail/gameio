@@ -52,10 +52,11 @@ export const AIRPORTS = [
 ];
 
 export const UTILITIES = [
-  { name: 'Electric Company', flag: '⚡', key: 'electric' },
-  { name: 'Water Company', flag: '💧', key: 'water' },
-  { name: 'Gas Company', flag: '🔥', key: 'gas' },
-  { name: 'Fiber Network', flag: '🛰️', key: 'fiber' },
+  { name: 'Apple Inc.', flag: '🍎', key: 'apple' },
+  { name: 'Alphabet (Google)', flag: '🔍', key: 'google' },
+  { name: 'Meta Platforms', flag: '♾️', key: 'meta' },
+  { name: 'NVIDIA Corp.', flag: '💚', key: 'nvidia' },
+  { name: 'Tesla Inc.', flag: '⚡', key: 'tesla' },
 ];
 
 export const GROUP_PALETTE = [

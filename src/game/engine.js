@@ -1,5 +1,6 @@
 import { countriesForBoard, AIRPORTS, UTILITIES, GROUP_PALETTE } from '../data/countries.js';
 import { POWER_DRAW_CHANCE, pickRandomPowerCard, powerCardById } from '../data/powerCards.js';
+import { brandWatermarkStyle, airplaneWatermarkSrc } from '../lib/brandLogos.js';
 import { flagModalHTML, flagSrc, flagTileHTML } from '../lib/flags.js';
 import { fmt, rand, shuffle, $ } from '../lib/format.js';
 import { rollDie, rollDicePair } from '../lib/random.js';
@@ -83,7 +84,7 @@ function genBoard(per){
   const twos=(3-(cCount%3))%3, threes=(cCount-2*twos)/3;
   const sizes=[];if(twos>0)sizes.push(2);for(let i=0;i<threes;i++)sizes.push(3);if(twos>1)sizes.push(2);
   const numG=sizes.length;
-  GROUPS={air:{name:'Airports',color:'#3E4A5E',flag:'✈️'},utl:{name:'Utilities',color:'#2E7890',flag:'⚡'}};
+  GROUPS={air:{name:'Airports',color:'#3E4A5E',flag:'✈️'},utl:{name:'Tech Giants',color:'#2E7890',flag:'🏢'}};
   let ci=0;
   const boardCountries=countriesForBoard(numG);
   sizes.forEach((sz,g)=>{
@@ -102,7 +103,7 @@ export function boardStats(per){
   const cities=b.filter(t=>t.type==='city').length;
   const countries=new Set(b.filter(t=>t.type==='city').map(t=>t.group)).size;
   const air=b.filter(t=>t.type==='air').length, utl=b.filter(t=>t.type==='utl').length;
-  return `${per * 4} tiles, ${cities} cities in ${countries} countries, ${air} airports, ${utl} utilities`;
+  return `${per * 4} tiles, ${cities} cities in ${countries} countries, ${air} airports, ${utl} companies`;
 }
 
 /* ---------------- card decks (board-agnostic) ---------------- */
@@ -175,7 +176,8 @@ const TOKEN_EMOJI=['🚂','✈️','🚢','🎩','🚗','🚀','🐪','🦁','�
 const DIFF={relaxed:{buyBuf:350,buildRes:450,bidMult:0.9},classic:{buyBuf:180,buildRes:250,bidMult:1.1},shark:{buyBuf:60,buildRes:120,bidMult:1.35}};
 let tradeSeq=1;
 const DICE_SYNC_LEAD_MS = 250;
-const TURN_LIMIT_MS = 120_000;
+const TURN_LIMIT_MS = 180_000;
+const VOTE_KICK_AFTER_MS = 90_000;
 const TURN_ENGAGE_WARN_MS = 20_000;
 const TURN_BONUS_MS = 30_000;
 const TRADE_QUEUE_MAX = 5;
@@ -793,6 +795,8 @@ function initBoard(per,{preview=false}={}){
     t.side=p.side;
     if(t.type==='city'&&GROUPS[t.group])el.style.setProperty('--group-color',GROUPS[t.group].color);
     if(t.type==='city'&&t.iso){const fsrc=flagSrc(t.iso);if(fsrc)el.style.setProperty('--flag-watermark',`url("${fsrc}")`);}
+    if(t.type==='utl'&&t.utlKey)el.style.setProperty('--tile-watermark',brandWatermarkStyle(t.utlKey));
+    if(t.type==='air')el.style.setProperty('--tile-watermark',`url("${airplaneWatermarkSrc(t.airVariant??0)}")`);
     let inner='',outer='';
     ({inner,outer}=buildTileParts(t));
     el.innerHTML=`<div class="tc">${inner}</div>${outer}<div class="tokens"></div>`;
@@ -1145,7 +1149,7 @@ function renderActionsCard(){
         hint.classList.add('turn-timer__hint--urgent');
       }else if(left<=TURN_ENGAGE_WARN_MS){
         hint.textContent='Keep playing — time running out.';
-      }else hint.textContent='Turn timer — 2 min limit.';
+      }else hint.textContent='Turn timer — 3 min limit.';
     }else if(left<=TURN_ENGAGE_WARN_MS&&!cur?.turnEngaged){
       hint.textContent=`${cur?.name||'Player'} must move soon.`;
     }else hint.textContent=`${cur?.name||'Player'}'s turn.`;
@@ -1153,7 +1157,7 @@ function renderActionsCard(){
   const kickBtn=$('voteKickBtn');
   const status=$('voteKickStatus');
   const canVote=alive&&cur&&!cur.dead&&!cur.bot&&human.id!==cur.id;
-  const showKick=canVote&&(elapsed>=60_000||left<=TURN_ENGAGE_WARN_MS);
+  const showKick=canVote&&(elapsed>=VOTE_KICK_AFTER_MS||left<=TURN_ENGAGE_WARN_MS);
   kickBtn?.classList.toggle('hidden',!showKick);
   if(status){
     const needed=voteKickMajority();
@@ -1457,7 +1461,7 @@ function log(html,p,meta={}){
   }
 }
 function tileIcon(t){return tileIconHTML(t);}
-function tileSub(t){if(t.type==='city')return GROUPS[t.group]?.name||'City';if(t.type==='air')return 'Airport';if(t.type==='utl')return 'Utility';return t.type;}
+function tileSub(t){if(t.type==='city')return GROUPS[t.group]?.name||'City';if(t.type==='air')return 'Airport';if(t.type==='utl')return 'Company';return t.type;}
 function propHeadHTML(t){
   if(t.type==='city')return flagModalHTML(t.iso);
   if(t.type==='air'||t.type==='utl')return `<span class="prop-icon-sm">${tileIcon(t)}</span>`;
