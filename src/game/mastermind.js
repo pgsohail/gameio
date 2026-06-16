@@ -132,8 +132,8 @@ function rankOf(pl) {
 function isEndgame() { return E.alive().length <= 2 || E.gamePhase() === 'late'; }
 
 function dangerOf(o) {
-  if (o.id === leaderId()) return 1.3;
-  return rankOf(o) <= 2 ? 0.9 : 0.45;
+  if (o.id === leaderId()) return 1.45;
+  return rankOf(o) <= 2 ? 0.95 : 0.5;
 }
 function threatWeight(o) { return MASTERMIND.denial * dangerOf(o); }
 
@@ -213,18 +213,18 @@ function valueOf(t, p) {
   if (t.type === 'city') {
     const g = t.group, sz = E.groupSize(g), mine = E.ownedInGroup(p, g);
     if (mine === sz - 1) {
-      v = Math.max(v, Math.round(monopolyPotential(g, p) * 0.6 * MASTERMIND.monopolyHunger + t.price));
+      v = Math.max(v, Math.round(monopolyPotential(g, p) * 0.68 * MASTERMIND.monopolyHunger + t.price));
     } else if (mine > 0) {
-      v *= 1 + 0.5 * mine * MASTERMIND.monopolyHunger;
-      if (mine + 1 === sz - 1) v += monopolyPotential(g, p) * 0.18 * MASTERMIND.monopolyHunger;
+      v *= 1 + 0.55 * mine * MASTERMIND.monopolyHunger;
+      if (mine + 1 === sz - 1) v += monopolyPotential(g, p) * 0.22 * MASTERMIND.monopolyHunger;
     }
     E.alive().forEach(o => {
       if (o.id === p.id) return;
       const oc = E.ownedInGroup(o, g);
       if (oc === sz - 1)
-        v = Math.max(v, Math.round(monopolyPotential(g, o) * 0.22 * threatWeight(o) + t.price));
+        v = Math.max(v, Math.round(monopolyPotential(g, o) * 0.26 * threatWeight(o) + t.price));
       else if (oc === sz - 2 && sz >= 3)
-        v = Math.max(v, Math.round(monopolyPotential(g, o) * 0.07 * threatWeight(o) + t.price));
+        v = Math.max(v, Math.round(monopolyPotential(g, o) * 0.09 * threatWeight(o) + t.price));
     });
   } else if (t.type === 'air') v *= 1 + 0.25 * E.countType(p, 'air');
   else if (t.type === 'utl') v *= 1 + 0.18 * E.countType(p, 'utl');
@@ -236,8 +236,8 @@ function releaseCost(t, me, to) {
   let c = valueOf(t, me) * 0.9;
   if (t.type === 'city') {
     const sz = E.groupSize(t.group), theirs = E.ownedInGroup(to, t.group);
-    if (theirs === sz - 1) c += monopolyPotential(t.group, to) * 0.5 * threatWeight(to);
-    else if (theirs === sz - 2 && sz >= 3) c += monopolyPotential(t.group, to) * 0.15 * threatWeight(to);
+    if (theirs === sz - 1) c += monopolyPotential(t.group, to) * 0.58 * threatWeight(to);
+    else if (theirs === sz - 2 && sz >= 3) c += monopolyPotential(t.group, to) * 0.18 * threatWeight(to);
     else if (theirs > 0) c += t.price * 0.35;
     if (E.ownedInGroup(me, t.group) === sz) c += t.price * 3;
   }
@@ -250,8 +250,8 @@ function feedRisk(to, idxList) {
     if (t.type !== 'city') return;
     const sz = E.groupSize(t.group);
     const after = E.ownedInGroup(to, t.group) + 1;
-    if (after >= sz) risk += monopolyPotential(t.group, to) * 0.4;
-    else if (after === sz - 1) risk += monopolyPotential(t.group, to) * 0.05;
+    if (after >= sz) risk += monopolyPotential(t.group, to) * 0.48;
+    else if (after === sz - 1) risk += monopolyPotential(t.group, to) * 0.07;
     else if (after > 0) risk += t.price * 0.2;
   });
   return risk * threatWeight(to);
@@ -262,22 +262,24 @@ function feedRisk(to, idxList) {
 =========================================================== */
 const MASTERMIND = {
   key: 'mastermind', label: 'Mastermind 🧠',
-  buyAggro: 1.1, reserve: 120, buildReserve: 160, bidMult: 1.1,
-  monopolyHunger: 1.8, denial: 2.0, incomeWeight: 1.7,
+  // Tuned v5.1 — stronger set hunger + denial, spends more when cash cushion is healthy.
+  buyAggro: 1.22, reserve: 110, buildReserve: 140, bidMult: 1.28,
+  monopolyHunger: 2.2, denial: 2.5, incomeWeight: 1.85,
   tradeFair: 1.0, lowball: 0.9, proposeEvery: 1, jailIQ: 1.0,
-  aggression: 1.35,
+  aggression: 1.52,
   usePowerCards: true,
 
   hooks: {
     reserve(p, _base, _threat, phase) {
       const t = deepThreat(p);
       const exposure = t.worst + t.expected * 1.1;
-      const floor = phase === 'early' ? 50 : phase === 'mid' ? 130 : 220;
-      const capFrac = phase === 'early' ? 0.4 : phase === 'mid' ? 0.55 : 0.7;
+      const floor = phase === 'early' ? 45 : phase === 'mid' ? 115 : 195;
+      const capFrac = phase === 'early' ? 0.44 : phase === 'mid' ? 0.58 : 0.72;
       const cushion = p.cash / Math.max(1, exposure);
       let a = MASTERMIND.aggression;
-      if (cushion < 1.2) a = 1;
-      else if (cushion < 2) a = Math.min(a, 1.15);
+      if (cushion < 1.15) a = 1;
+      else if (cushion < 1.85) a = Math.min(a, 1.2);
+      else if (cushion < 2.5) a = Math.min(a, 1.38);
       a = Math.max(1, a);
       const raw = Math.max(floor, Math.min(exposure, p.cash * capFrac));
       return Math.round(Math.max(floor, raw / a));
@@ -293,6 +295,11 @@ const MASTERMIND = {
   },
 };
 function reserveOf(p) { return MASTERMIND.hooks.reserve(p, 0, 0, E.gamePhase()); }
+/** Scale cash buffer required for a buy/bid — higher aggression = willing to spend closer to reserve. */
+function spendFloor(mult) {
+  const a = MASTERMIND.aggression;
+  return mult * Math.max(0.68, 1.42 - a * 0.28);
+}
 
 /* ===========================================================
    BUYING  (own-set first, then block 1-2 steps ahead)
@@ -304,15 +311,15 @@ export function mastermindShouldBuy(p, t) {
 
   if (t.type === 'city') {
     const sz = E.groupSize(t.group), mine = E.ownedInGroup(p, t.group);
-    if (mine === sz - 1) return p.cash - t.price >= keep * 0.25;
-    if (mine + 1 === sz - 1) return p.cash - t.price >= keep * 0.4;
+    if (mine === sz - 1) return p.cash - t.price >= keep * spendFloor(0.18);
+    if (mine + 1 === sz - 1) return p.cash - t.price >= keep * spendFloor(0.32);
     const block1 = E.alive().some(o => o.id !== p.id && E.ownedInGroup(o, t.group) === sz - 1);
-    if (block1) return p.cash - t.price >= keep * 0.2;
+    if (block1) return p.cash - t.price >= keep * spendFloor(0.14);
     const block2 = sz >= 3 && E.alive().some(o => o.id !== p.id && E.ownedInGroup(o, t.group) === sz - 2);
-    if (block2) return p.cash - t.price >= keep * 0.7;
+    if (block2) return p.cash - t.price >= keep * spendFloor(0.52);
   }
-  if (E.gamePhase() === 'early') return p.cash - t.price >= keep * 0.5 && v >= t.price * 0.7;
-  return v >= t.price && p.cash - t.price >= keep;
+  if (E.gamePhase() === 'early') return p.cash - t.price >= keep * spendFloor(0.46) && v >= t.price * 0.68;
+  return v >= t.price * 0.95 && p.cash - t.price >= keep * spendFloor(0.88);
 }
 
 export function mastermindNextBid(p, tile, currentBid, leaderIdArg = null) {
@@ -321,13 +328,13 @@ export function mastermindNextBid(p, tile, currentBid, leaderIdArg = null) {
   let ceil = valueOf(tile, p) * MASTERMIND.bidMult;
   if (tile.type === 'city') {
     const sz = E.groupSize(tile.group), mine = E.ownedInGroup(p, tile.group);
-    if (mine === sz - 1) ceil *= 1.6;
-    else if (mine + 1 === sz - 1) ceil *= 1.25;
+    if (mine === sz - 1) ceil *= 1.75;
+    else if (mine + 1 === sz - 1) ceil *= 1.32;
     const denies = E.alive().some(o => o.id !== p.id &&
       (E.ownedInGroup(o, tile.group) === sz - 1 || (sz >= 3 && E.ownedInGroup(o, tile.group) === sz - 2)));
-    if (denies) ceil *= 1.45;
+    if (denies) ceil *= 1.58;
   }
-  const ceiling = Math.min(ceil, p.cash - Math.round(keep * 0.4));
+  const ceiling = Math.min(ceil, p.cash - Math.round(keep * spendFloor(0.3)));
   const inc = currentBid < 100 ? 10 : currentBid < 400 ? 50 : 100;
   const next = currentBid + inc;
   return (next <= ceiling && next <= p.cash) ? next : null;
@@ -375,7 +382,7 @@ export function mastermindBestProposal(bot) {
   let best = null;
   const consider = c => {
     if (!c) return;
-    if (bot.cash - (c.offerCash || 0) < reserveOf(bot) * 0.4) return;
+    if (bot.cash - (c.offerCash || 0) < reserveOf(bot) * spendFloor(0.34)) return;
     if (!best || c.score > best.score) best = c;
   };
   const advancesMine = t => {
@@ -400,11 +407,11 @@ export function mastermindBestProposal(bot) {
       if (!tier) return;
       const worth = valueOf(t, bot);
       const ask = releaseCost(t, opp, bot);
-      const denyBonus = (opp.id === leaderId()) ? 1.2 : 1.0;
-      let cash = Math.round(Math.min(worth * Math.min(1.0, 0.85 * A), ask) * denyBonus);
-      cash = Math.min(cash, Math.floor(bot.cash * 0.7));
-      if (cash < t.price * 0.8) return;
-      consider({ score: (worth - cash) + (tier === 2 ? worth * 0.3 : worth * 0.12),
+      const denyBonus = (opp.id === leaderId()) ? 1.28 : 1.0;
+      let cash = Math.round(Math.min(worth * Math.min(1.05, 0.9 * A), ask) * denyBonus);
+      cash = Math.min(cash, Math.floor(bot.cash * 0.76));
+      if (cash < t.price * 0.75) return;
+      consider({ score: (worth - cash) + (tier === 2 ? worth * 0.36 : worth * 0.14),
         toId: opp.id, offerIdx: [], wantIdx: [t.idx], offerCash: cash, wantCash: 0 });
     });
 
@@ -454,10 +461,10 @@ export function mastermindBestProposal(bot) {
       if (t.mortgaged || t.houses > 0) return;
       const holder = E.S().players[t.owner];
       if (!holder || holder.dead) return;
-      const denyVal = monopolyPotential(g, threat) * threatWeight(threat) * 0.4;
-      let cash = Math.round(Math.min(denyVal * 0.6, valueOf(t, holder) * 1.5,
-        (t.price || 100) * 4, bot.cash * 0.45));
-      if (cash < t.price * 0.7) return;
+      const denyVal = monopolyPotential(g, threat) * threatWeight(threat) * 0.48;
+      let cash = Math.round(Math.min(denyVal * 0.66, valueOf(t, holder) * 1.55,
+        (t.price || 100) * 4.2, bot.cash * 0.5));
+      if (cash < t.price * 0.68) return;
       const score = denyVal - cash + valueOf(t, bot) * 0.3;
       consider({ score, toId: holder.id, offerIdx: [], wantIdx: [t.idx], offerCash: cash, wantCash: 0 });
     });
@@ -487,14 +494,14 @@ export function mastermindBuildPhase(p) {
       const cur = h === 0 && E.S().rules.double ? t.rents[0] * 2 : t.rents[h];
       const gain = t.rents[h + 1] - cur;
       let roi = gain * landRate(t.idx) * opp / (t.houseCost || t.price);
-      if (h < 3) roi *= 1.6;
-      if (h >= 3 && cand.some(x => x.group === t.group && x.houses < 3)) roi *= 0.12;
+      if (h < 3) roi *= 1.72;
+      if (h >= 3 && cand.some(x => x.group === t.group && x.houses < 3)) roi *= 0.1;
       let imminent = 1;
       E.alive().forEach(o => {
         if (o.id === p.id) return;
         const pr = E.landProbNext(o.pos, t.idx);
-        imminent += pr * 2.5;
-        if (canFinish(o, p)) imminent += pr * 6;
+        imminent += pr * (2.8 * MASTERMIND.aggression);
+        if (canFinish(o, p)) imminent += pr * (7 * MASTERMIND.denial * 0.35);
       });
       roi *= imminent;
       return { t, roi };
