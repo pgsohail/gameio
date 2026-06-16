@@ -2059,6 +2059,10 @@ body.prop-tile-focus .tile:not(.tile-prop-focus){filter:saturate(.78) brightness
   background:linear-gradient(180deg,#e8a050,#c87828);color:#241a05;
   box-shadow:0 5px 16px -5px rgba(217,164,65,.55);
 }
+.hub-dock--debt .btn#settleDebtBtn{
+  animation:hubBuyPulse 1.4s ease-in-out infinite;
+  box-shadow:0 5px 16px -5px rgba(217,164,65,.75),0 0 22px rgba(232,160,80,.35);
+}
 
 #dock{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}
 .btn{

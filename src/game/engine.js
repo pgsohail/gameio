@@ -730,7 +730,7 @@ function bindDockWires(){
     log(`<b>${S.cur.name}</b> passes on ${t.name}.`,S.cur);afterAction(false);
   };
   $('endBtn').onclick=()=>{markTurnEngagement();endTurn();};
-  $('settleDebtBtn').onclick=()=>{const p=localHuman();if(p)settleDebt(p);};
+  $('settleDebtBtn').onclick=()=>{markTurnEngagement();const p=localHuman();if(p)settleDebt(p);};
   $('jailPayBtn').onclick=()=>payJailFine(S.cur);
   $('jailCardBtn').onclick=()=>useJailCard(S.cur);
 }
@@ -1069,8 +1069,15 @@ function handleTurnTimeout(){
     return;
   }
   if(cur.turnEngaged){
-    log(`⏱️ <b>${cur.name}</b>'s turn ended (time up).`,cur);
-    endTurn();
+    if(playerInDebt(cur)){
+      log(`⏱️ <b>${cur.name}</b>'s time ran out while in debt — bankrupt.`,cur);
+      const creditor=debtCreditor(cur);
+      if(cur.debt)delete cur.debt;
+      bankrupt(cur,creditor);
+    }else{
+      log(`⏱️ <b>${cur.name}</b>'s turn ended (time up).`,cur);
+      endTurn();
+    }
     if(isMpGame())broadcastStateNow();
     return;
   }
@@ -1079,7 +1086,9 @@ function handleTurnTimeout(){
     if(!S.voteKickedUsers)S.voteKickedUsers=[];
     if(!S.voteKickedUsers.includes(cur.userId))S.voteKickedUsers.push(cur.userId);
   }
-  bankrupt(cur, null);
+  const creditor=debtCreditor(cur);
+  if(cur.debt)delete cur.debt;
+  bankrupt(cur,creditor);
   S.voteKick = { voters: [] };
   if (isMpGame()) broadcastStateNow();
 }
@@ -1136,7 +1145,10 @@ function renderActionsCard(){
     if(!alive)hint.textContent='Out — leave when ready.';
     else if(cur?.dead)hint.textContent='';
     else if(cur?.id===human?.id){
-      if(left<=TURN_ENGAGE_WARN_MS&&!cur.turnEngaged){
+      if(cur.debt){
+        hint.textContent=`Pay ${fmt(cur.debt.amount)} debt or declare bankruptcy.`;
+        hint.classList.add('turn-timer__hint--urgent');
+      }else if(left<=TURN_ENGAGE_WARN_MS&&!cur.turnEngaged){
         hint.textContent='Hurry — move soon or removed.';
         hint.classList.add('turn-timer__hint--urgent');
       }else if(left<=TURN_ENGAGE_WARN_MS){
@@ -1263,16 +1275,17 @@ function renderDock(){
   const show=(id,on)=>{const el=$(id);if(el)el.classList.toggle('hidden',!on);};
   const jailing=ph==='jail';
   const humanTurn=isMyTurn()&&!S.over;
+  const debtLocked=humanTurn&&!!me?.debt;
   if(isMpGame()&&!humanTurn&&!p.bot&&!S.over){
     msg(`Waiting for ${p.name}…`);
   }
-  show('rollBtn',humanTurn&&(ph==='roll'||jailing));
+  show('rollBtn',humanTurn&&(ph==='roll'||jailing)&&!debtLocked);
   if($('rollBtn'))$('rollBtn').textContent=jailing?'🎲 Roll for doubles':'🎲 Roll Dice';
   show('buyBtn',humanTurn&&ph==='buy');show('skipBtn',humanTurn&&ph==='buy');
   show('auctionBtn',humanTurn&&ph==='buy'&&S.rules.auction);
-  show('endBtn',humanTurn&&ph==='end');
-  show('jailPayBtn',humanTurn&&jailing&&p.cash>=100);
-  show('jailCardBtn',humanTurn&&jailing&&p.goojf>0);
+  show('endBtn',humanTurn&&ph==='end'&&!debtLocked);
+  show('jailPayBtn',humanTurn&&jailing&&p.cash>=100&&!debtLocked);
+  show('jailCardBtn',humanTurn&&jailing&&p.goojf>0&&!debtLocked);
   if(ph==='buy'&&humanTurn){
     const t=TILES[p.pos];
     $('buyBtn').textContent=`Buy · ${fmt(t.price)}`;
@@ -1283,20 +1296,20 @@ function renderDock(){
   }
   $('hubDockSlot')?.querySelector('.hub-dock')?.classList.toggle('hub-dock--buy',humanTurn&&ph==='buy');
   if(ph!=='buy'&&propOpenIdx==null)clearPropTileFocus();
-  const human=localHuman();
-  if(human?.debt){
+  if(me?.debt&&humanTurn){
     show('settleDebtBtn',true);
     const sb=$('settleDebtBtn');
     if(sb){
-      sb.textContent=`Pay debt · ${fmt(human.debt.amount)}`;
-      sb.disabled=human.cash<human.debt.amount;
+      sb.textContent=`Pay debt · ${fmt(me.debt.amount)}`;
+      sb.disabled=me.cash<me.debt.amount;
     }
   }else show('settleDebtBtn',false);
-  const canPower=!!human&&S.rules.powerCards&&!S.over&&human.powerCards?.length>0
-    &&p.id===human.id&&!human.dead&&(ph==='roll'||ph==='end');
+  $('hubDockSlot')?.querySelector('.hub-dock')?.classList.toggle('hub-dock--debt',!!debtLocked);
+  const canPower=!!me&&S.rules.powerCards&&!S.over&&me.powerCards?.length>0
+    &&p.id===me.id&&!me.dead&&!me.debt&&(ph==='roll'||ph==='end');
   show('powerCardsBtn',canPower);
   const pcb=$('powerCardsBtn');
-  if(pcb&&canPower)pcb.textContent=`🃏 Power cards (${human.powerCards.length})`;
+  if(pcb&&canPower)pcb.textContent=`🃏 Power cards (${me.powerCards.length})`;
   if(p.bot)['rollBtn','buyBtn','skipBtn','auctionBtn','endBtn','jailPayBtn','jailCardBtn','settleDebtBtn','powerCardsBtn'].forEach(id=>{const el=$(id);if(el)el.classList.add('hidden');});
 }
 function tradeTileSummary(idxs,cash){
@@ -1646,6 +1659,43 @@ function repairs(s,ph,ht){let total=0;
 function nearestAirport(s){let i=s.cur.pos;do{i=(i+1)%N;}while(TILES[i].type!=='air');
   s.cur.pos=i;log(`<b>${s.cur.name}</b> dashes to ${TILES[i].name}.`,s.cur);renderTiles();resolveTile(s.cur,{airDouble:true});}
 
+function playerInDebt(p){return!!(p&&!p.bot&&p.debt&&p.debt.amount>0);}
+function debtCreditor(p){
+  if(p?.debt?.creditorId==null)return null;
+  const c=S.players[p.debt.creditorId];
+  return c&&!c.dead?c:null;
+}
+function debtResumeDefault(p,rollAgain=false){
+  if(rollAgain&&!p.jail)return'roll';
+  if(p.jail)return'jail';
+  return'end';
+}
+function lockForDebt(p,rollAgain=false){
+  if(!playerInDebt(p))return;
+  if(!p.debt.resume)p.debt.resume=debtResumeDefault(p,rollAgain);
+  S.phase='debt';
+  const mine=isMyTurn()&&localHuman()?.id===p.id;
+  msg(mine
+    ?`You owe ${fmt(p.debt.amount)}. Mortgage, sell, trade, pay, or declare bankruptcy before continuing.`
+    :`${p.name} must settle ${fmt(p.debt.amount)} debt before continuing.`);
+  renderAll();
+}
+function resumeAfterDebt(p,resume){
+  if(playerInDebt(p)||!p||p.dead||S.over)return;
+  if(S.cur!==p){renderAll();return;}
+  if(resume==='roll'&&!p.jail){
+    S.phase='roll';
+    msg('Debt cleared — roll the dice.');
+  }else if(resume==='jail'||p.jail){
+    S.phase='jail';
+    msg(`${p.name} is in prison — roll for doubles or pay the fine.`);
+  }else{
+    S.phase='end';
+    msg('Debt cleared — end your turn or manage properties.');
+  }
+  renderAll();
+  if(isMpGame())broadcastStateNow();
+}
 function payTo(payer,creditor,amount,tile){
   if(payer.dead)return;
   if(creditor&&amount>0&&payer.freeRide){
@@ -1686,8 +1736,8 @@ function payTo(payer,creditor,amount,tile){
       if(owed>0||(payer.cash<=0&&netWorth(payer)<=0))bankrupt(payer,creditor);
     }else{
       payer.debt={amount:owed,creditorId:creditor?.id??null};
-      log(`⚠️ <b>${payer.name}</b> still owes <b>${fmt(owed)}</b> — trade, manage estates, or pay when ready.`,payer);
-      msg(`You owe ${fmt(owed)}. Raise cash via trades — you choose when to pay or declare bankruptcy.`);
+      log(`⚠️ <b>${payer.name}</b> still owes <b>${fmt(owed)}</b> — must pay or declare bankruptcy.`,payer);
+      msg(`You owe ${fmt(owed)}. Mortgage, sell, trade, pay, or declare bankruptcy before continuing.`);
     }
   }else if(payer.debt&&!payer.bot)delete payer.debt;
   renderPlayers();renderPot();
@@ -1695,6 +1745,7 @@ function payTo(payer,creditor,amount,tile){
 function settleDebt(p){
   if(!p?.debt||p.cash<p.debt.amount)return;
   const amt=p.debt.amount;
+  const resume=p.debt.resume||debtResumeDefault(p);
   const cred=p.debt.creditorId!=null?S.players[p.debt.creditorId]:null;
   p.cash-=amt;
   if(cred){cred.cash+=amt;log(`<b>${p.name}</b> settles debt — pays <b>${cred.name}</b> ${fmt(amt)}.`,p);}
@@ -1704,7 +1755,7 @@ function settleDebt(p){
   }
   delete p.debt;
   msg('Debt cleared.');
-  renderAll();
+  resumeAfterDebt(p,resume);
 }
 function openBankruptConfirm(){
   const p=localHuman();
@@ -1734,8 +1785,9 @@ function voluntaryBankrupt(p){
 function forfeitLocalHuman(){
   const p=localHuman();
   if(!p||p.dead||S.over)return false;
+  const creditor=debtCreditor(p);
   if(p.debt)delete p.debt;
-  bankrupt(p,null);
+  bankrupt(p,creditor);
   if(isMultiplayerActive())broadcastStateNow();
   return true;
 }
@@ -1868,7 +1920,11 @@ function startTurn(){
     p.turnBonusUsed=false;
   }
   p.rentSurge=false;
-  if(p.jail){S.phase='jail';msg(`${p.name} is in prison (attempt ${p.jailTurns+1} of 3).`);}
+  if(playerInDebt(p)){
+    p.debt.resume=p.jail?'jail':'roll';
+    S.phase='debt';
+    msg(`${p.name} must settle ${fmt(p.debt.amount)} debt before continuing.`);
+  }else if(p.jail){S.phase='jail';msg(`${p.name} is in prison (attempt ${p.jailTurns+1} of 3).`);}
   else{S.phase='roll';msg(turnMsg(p));}
   renderAll();
   if(isMpGame()){
@@ -1880,6 +1936,10 @@ function startTurn(){
 function endTurn(){
   if(S.over)return;
   if(!mayControlTurn()&&!S.cur?.dead)return;
+  if(playerInDebt(S.cur)){
+    msg(`Pay your ${fmt(S.cur.debt.amount)} debt or declare bankruptcy first.`);
+    return;
+  }
   markTurnEngagement();
   S.phase='idle';
   S.turn=(S.turn+1)%S.players.length;
@@ -1897,6 +1957,7 @@ function humanRoll(){
 }
 function doRoll(p){
   if(!mayControlTurn(p))return;
+  if(playerInDebt(p))return;
   S.phase='moving';renderDock();
   const {total,startAt}=rollDiceAndBroadcast(p);
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
@@ -2038,6 +2099,10 @@ function finishMovePhase(p,rollAgain){
   if(p.dead){advanceTurn();return;}
   renderAll();if(checkWin())return;
   const runBots=localRunsBots();
+  if(playerInDebt(p)){
+    lockForDebt(p,rollAgain);
+    return;
+  }
   if(rollAgain&&!p.jail){
     S.phase='roll';renderDock();
     if(p.bot){if(runBots)setTimeout(()=>doRoll(p),180);}
@@ -2054,6 +2119,7 @@ function finishMovePhase(p,rollAgain){
 /* ---------- jail ---------- */
 function payJailFine(p){
   payTo(p,null,100);if(p.dead){endTurn();return;}
+  if(playerInDebt(p)){lockForDebt(p);return;}
   p.jail=false;p.jailTurns=0;
   log(`<b>${p.name}</b> pays the $100 fine and walks free.`,p);
   S.phase='roll';msg('Free again — roll the dice.');renderAll();
@@ -2079,7 +2145,9 @@ function jailRoll(p){
       log(`<b>${p.name}</b> fails to roll doubles.`,p);
       if(p.jailTurns>=3){
         log(`<b>${p.name}</b> must pay the $100 fine after 3 attempts.`,p);
-        payTo(p,null,100);if(p.dead){endTurn();return;}
+        payTo(p,null,100);
+        if(p.dead){endTurn();return;}
+        if(playerInDebt(p)){lockForDebt(p);return;}
         p.jail=false;p.jailTurns=0;
         animateMove(p,total,()=>resolveTile(p,{}));
       }else if(p.bot&&localRunsBots())setTimeout(endTurn,380);
@@ -2141,7 +2209,7 @@ function awardPowerCard(p,deck,again){
   if(isMpGame())broadcastStateNow();
 }
 function canPlayPowerNow(p){
-  return S.rules.powerCards&&!p.bot&&!p.dead&&isMyTurn()&&(S.phase==='roll'||S.phase==='end');
+  return S.rules.powerCards&&!p.bot&&!p.dead&&!p.debt&&isMyTurn()&&(S.phase==='roll'||S.phase==='end');
 }
 function powerTargets(p,cardId){
   if(cardId==='demolition'){
@@ -2974,6 +3042,7 @@ function bindTradeSliders(){
 function openTrade(){
   const p=localHuman();
   if(!p)return;
+  if(playerInDebt(p))markTurnEngagement();
   const partners=alive().filter(x=>x.id!==p.id);
   if(!partners.length)return;
   tradeCounterId=null;
