@@ -50,6 +50,10 @@ let gameMultiplayer = false;
 let gameSpectating = false;
 let gamePausedAway = false;
 let wsReconnectTimer = null;
+let wsReconnectAttempts = 0;
+let wsLastMessageAt = 0;
+let wsHeartbeatTimer = null;
+let chatOutbox = [];
 let lobbyPollTimer = null;
 let prevSlotSnapshot = null;
 let lobbyWasSeated = false;
@@ -329,10 +333,13 @@ function setLobbyChatHistory(messages) {
 function appendLobbyChatMessage(msg, { silent = false } = {}) {
   if (!msg?.text) return;
   const u = getUser();
-  const optIdx = lobbyChatMessages.findIndex(m =>
-    m.pending && m.userId === msg.userId && m.text === msg.text);
+  let optIdx = msg.clientId ? lobbyChatMessages.findIndex(m => m.id === msg.clientId) : -1;
+  if (optIdx < 0) {
+    optIdx = lobbyChatMessages.findIndex(m =>
+      m.pending && m.userId === msg.userId && m.text === msg.text);
+  }
   if (optIdx >= 0) {
-    lobbyChatMessages[optIdx] = { ...msg, pending: false };
+    lobbyChatMessages[optIdx] = { ...msg, pending: false, failed: false };
     renderLobbyChatFeed(true);
     return;
   }
@@ -425,7 +432,7 @@ function renderLobbyChatFeed(scrollToEnd = false) {
         ${mine ? '' : `<span class="chat-msg__avatar" style="--mc:${esc(m.color || '#888')}">${esc(m.emoji || '🚂')}</span>`}
         <div class="chat-msg__body">
           ${showName ? `<span class="chat-msg__author">${m.spectator ? '💡 ' : ''}${esc(m.name || 'Player')}${m.spectator ? ' · spectator' : ''}</span>` : ''}
-          <p class="chat-msg__text${m.pending ? ' chat-msg__text--pending' : ''}">${esc(m.text)}</p>
+          <p class="chat-msg__text${m.pending ? ' chat-msg__text--pending' : ''}${m.failed ? ' chat-msg__text--failed' : ''}">${esc(m.text)}${m.failed ? ' <span class="chat-msg__failed">· not sent</span>' : ''}</p>
         </div>
       </article>`;
   }
@@ -437,11 +444,11 @@ function renderLobbyChatFeed(scrollToEnd = false) {
 
 function sendLobbyChatMessage(text) {
   const trimmed = String(text || '').trim();
-  if (!trimmed || !lobbyCanSendChat || !currentRoomId || !roomSocket) return false;
+  if (!trimmed || !lobbyCanSendChat || !currentRoomId) return false;
   const u = getUser();
   if (!u) return false;
   const optimistic = {
-    id: `opt-${Date.now()}`,
+    id: `opt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     userId: u.id,
     name: myChatProfile.name || u.name,
     emoji: gameSpectating ? '👁' : myChatProfile.emoji,
@@ -452,16 +459,44 @@ function sendLobbyChatMessage(text) {
     spectator: gameSpectating,
   };
   appendLobbyChatMessage(optimistic, { silent: true });
-  const ok = sendRoomSocket(roomSocket, {
+  const frame = {
     type: gameSpectating ? 'spectator_chat' : 'lobby_chat',
     roomId: currentRoomId,
     text: optimistic.text,
-  });
-  if (!ok) {
-    lobbyChatMessages = lobbyChatMessages.filter(m => m.id !== optimistic.id);
-    renderLobbyChatFeed();
+    clientId: optimistic.id,
+  };
+  // If the socket is reconnecting, queue it — it goes out the moment we're back.
+  if (!sendRoomSocket(roomSocket, frame)) chatOutbox.push(frame);
+  setTimeout(() => markChatFailedIfPending(optimistic.id), 8000);
+  return true;
+}
+
+function markChatFailedIfPending(id) {
+  const m = lobbyChatMessages.find(x => x.id === id);
+  if (!m || !m.pending) return;
+  m.pending = false;
+  m.failed = true;
+  renderLobbyChatFeed();
+}
+
+function flushChatOutbox(ws) {
+  if (!chatOutbox.length || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const queued = chatOutbox.filter(f => f.roomId === currentRoomId);
+  chatOutbox = [];
+  for (const f of queued) sendRoomSocket(ws, f);
+}
+
+function handleChatError(msg) {
+  // Mark the newest pending copy of this text as failed so the sender knows.
+  for (let i = lobbyChatMessages.length - 1; i >= 0; i--) {
+    const m = lobbyChatMessages[i];
+    if (m.pending && m.text === msg.text) {
+      m.pending = false;
+      m.failed = true;
+      break;
+    }
   }
-  return ok;
+  renderLobbyChatFeed();
 }
 
 function handleLobbyChatSubmit(e) {
@@ -889,6 +924,8 @@ function startLobbyPoll(roomId) {
       stopLobbyPoll();
       return;
     }
+    // Live updates arrive over the socket; HTTP polling is only a fallback.
+    if (roomSocket?.readyState === WebSocket.OPEN && Date.now() - wsLastMessageAt < 30_000) return;
     try {
       const { room } = await roomsApi.get(roomId);
       if (room.status === 'lobby') renderBoardLobby(room);
@@ -903,6 +940,12 @@ function startLobbyPoll(roomId) {
 }
 
 function onRoomSocketMessage(roomId, msg) {
+  wsLastMessageAt = Date.now();
+  if (msg.type === 'pong' || msg.type === 'auth_ok') return;
+  if (msg.type === 'chat_error') {
+    handleChatError(msg);
+    return;
+  }
   const u = getUser();
   if (handleDiceRollMessage(msg)) return;
   if (handleGameLogMessage(msg)) return;
@@ -983,27 +1026,82 @@ function startFromPayload(payload) {
 function disconnectRoomSocket() {
   clearTimeout(wsReconnectTimer);
   wsReconnectTimer = null;
-  roomSocket?.close();
-  roomSocket = null;
+  clearInterval(wsHeartbeatTimer);
+  wsHeartbeatTimer = null;
+  const ws = roomSocket;
+  roomSocket = null; // set first so the close handler knows this was intentional
+  ws?.close();
 }
+
+/** Keep-alive + dead-connection detection (mobile/wifi drops leave half-open sockets). */
+function startWsHeartbeat(ws) {
+  clearInterval(wsHeartbeatTimer);
+  wsLastMessageAt = Date.now();
+  wsHeartbeatTimer = setInterval(() => {
+    if (roomSocket !== ws) {
+      clearInterval(wsHeartbeatTimer);
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - wsLastMessageAt > 25_000) {
+      ws.close(); // triggers the reconnect loop
+      return;
+    }
+    sendRoomSocket(ws, { type: 'ping', t: Date.now() });
+  }, 8000);
+}
+
+/** Open the room socket with automatic reconnect (exponential backoff, unlimited retries). */
+function openRoomSocket(rid) {
+  const ws = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
+  if (!ws) return null;
+  roomSocket = ws;
+  subscribeWhenOpen(ws, { type: 'subscribe', roomId: rid });
+  ws.addEventListener('open', () => {
+    wsReconnectAttempts = 0;
+    startWsHeartbeat(ws);
+    setTimeout(() => flushChatOutbox(ws), 50);
+  });
+  ws.addEventListener('close', () => {
+    if (roomSocket !== ws) return; // replaced or closed on purpose
+    roomSocket = null;
+    if (currentRoomId !== rid) return;
+    scheduleRoomReconnect(rid);
+  });
+  return ws;
+}
+
+function scheduleRoomReconnect(rid, delayOverride) {
+  clearTimeout(wsReconnectTimer);
+  const delay = delayOverride ?? Math.min(5000, 200 * 2 ** wsReconnectAttempts);
+  wsReconnectAttempts += 1;
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    if (currentRoomId !== rid || roomSocket) return;
+    const ws = openRoomSocket(rid);
+    if (!ws) return;
+    if (gameSpectating) enableSpectator(ws, rid);
+    else if (gameStarted && gameMultiplayer) enableMultiplayer(ws, rid);
+  }, delay);
+}
+
+// Reconnect right away when the network or tab comes back instead of waiting for backoff.
+function reconnectNowIfNeeded() {
+  if (!currentRoomId || roomSocket) return;
+  wsReconnectAttempts = 0;
+  scheduleRoomReconnect(currentRoomId, 0);
+}
+window.addEventListener('online', reconnectNowIfNeeded);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) reconnectNowIfNeeded();
+});
 
 function subscribeRoom(roomId, { spectate = false } = {}) {
   disconnectRoomSocket();
+  wsReconnectAttempts = 0;
   const rid = String(roomId).toLowerCase();
-  roomSocket = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
-  subscribeWhenOpen(roomSocket, { type: 'subscribe', roomId: rid });
+  openRoomSocket(rid);
   if (spectate) enableSpectator(roomSocket, rid);
-  roomSocket?.addEventListener('close', () => {
-    if (currentRoomId !== rid) return;
-    wsReconnectTimer = setTimeout(() => {
-      if (currentRoomId !== rid) return;
-      const ws = connectRoomSocket(msg => onRoomSocketMessage(rid, msg));
-      roomSocket = ws;
-      subscribeWhenOpen(ws, { type: 'subscribe', roomId: rid });
-      if (gameSpectating) enableSpectator(ws, rid);
-      else if (gameStarted && gameMultiplayer) enableMultiplayer(ws, rid);
-    }, 1000);
-  });
   if (!spectate) startLobbyPoll(rid);
 }
 

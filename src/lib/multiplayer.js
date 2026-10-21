@@ -18,8 +18,49 @@ let lastStateSig = '';
 let mpBroadcastPaused = 0;
 let pendingRemoteState = null;
 let importStateRaf = 0;
+/** Seq of the latest server-committed state this client has (base for our next write). */
+let knownSeq = 0;
+const pendingRolls = new Map();
+let rollReqCounter = 0;
 
-const STATE_BROADCAST_MS = 100;
+/** Coalesce bursts of local changes into one frame (~16ms) — no artificial lag. */
+const STATE_BROADCAST_MS = 16;
+const ROLL_TIMEOUT_MS = 4000;
+
+let writeGate = null;
+let localIntentUntil = 0;
+
+/**
+ * Only clients that actually did something may write the shared state. Without this,
+ * every client re-sent its own (possibly stale) copy after animations, rolling others back.
+ */
+export function registerWriteGate(fn) {
+  writeGate = fn;
+}
+
+/** A real local action (click, key, admin/bot timer) — allow writes for a short window. */
+export function noteLocalIntent(ms = 2500) {
+  localIntentUntil = Math.max(localIntentUntil, Date.now() + ms);
+}
+
+function mayWrite() {
+  if (Date.now() < localIntentUntil) return true;
+  return writeGate ? !!writeGate() : true;
+}
+
+if (typeof document !== 'undefined') {
+  const onInput = e => {
+    if (!mpGame || spectatorMode) return;
+    const t = e.target;
+    if (!t?.closest) return;
+    if (e.type === 'keydown' && !['Enter', ' '].includes(e.key)) return;
+    if (t.closest('button, [role="button"], a, input, select, label, .tile, .t, [data-tile], [onclick]')) {
+      noteLocalIntent();
+    }
+  };
+  document.addEventListener('pointerdown', onInput, true);
+  document.addEventListener('keydown', onInput, true);
+}
 
 export function registerStateSync(exporter) {
   exportStateFn = exporter;
@@ -62,12 +103,22 @@ export function setMpBroadcastPaused(paused) {
   else mpBroadcastPaused = Math.max(0, mpBroadcastPaused - 1);
 }
 
+function resetSyncCursors() {
+  lastStateSig = '';
+  lastRemoteSeq = 0;
+  knownSeq = 0;
+  lastDiceSeq = 0;
+}
+
 export function enableMultiplayer(ws, id) {
+  const sameRoom = roomId === id && mpGame && !spectatorMode;
   spectatorMode = false;
   mpGame = true;
   socket = ws;
   roomId = id;
-  lastStateSig = '';
+  // On a reconnect to the same room keep cursors; the server resends a full resync.
+  if (!sameRoom) resetSyncCursors();
+  else lastStateSig = '';
 }
 
 export function enableSpectator(ws, id) {
@@ -75,7 +126,7 @@ export function enableSpectator(ws, id) {
   mpGame = true;
   socket = ws;
   roomId = id;
-  lastStateSig = '';
+  resetSyncCursors();
 }
 
 export function attachMultiplayer(ws, id) {
@@ -94,6 +145,9 @@ export function detachMultiplayer() {
   lastDiceSeq = 0;
   lastMoveSeq = 0;
   lastStateSig = '';
+  knownSeq = 0;
+  for (const p of pendingRolls.values()) { clearTimeout(p.timer); p.resolve(null); }
+  pendingRolls.clear();
   mpBroadcastPaused = 0;
   pendingRemoteState = null;
   if (importStateRaf) cancelAnimationFrame(importStateRaf);
@@ -104,10 +158,13 @@ export function applyGameState(state) {
   if (importStateFn) importStateFn(state);
 }
 
+/**
+ * Full-content signature. The old one only looked at cash/pos/turn, so auction bids,
+ * houses, mortgages, votes etc. were silently never sent.
+ */
 function stateSignature(state) {
   if (!state) return '';
-  const p = state.players?.map(x => `${x.cash}:${x.pos}:${x.dead ? 1 : 0}`).join('|') || '';
-  return `${state.turn}:${state.phase}:${state.over ? 1 : 0}:${p}:${state.tradeSeq || 0}`;
+  try { return JSON.stringify(state); } catch { return String(Date.now()); }
 }
 
 function flushRemoteState() {
@@ -124,22 +181,37 @@ function flushRemoteState() {
   } finally {
     applyingRemote = false;
   }
+  // What we just imported is already on the server — don't echo it back.
+  try { if (exportStateFn) lastStateSig = stateSignature(exportStateFn()); } catch { /* ignore */ }
 }
 
-export function broadcastDiceRoll(d1, d2, rollerName, rollerUserId, startAt) {
-  if (!mpGame || !roomId || !socket || socket.readyState !== WebSocket.OPEN) return;
-  const seq = Date.now();
-  lastDiceSeq = seq;
-  socket.send(JSON.stringify({
-    type: 'dice_roll',
-    roomId,
-    d1,
-    d2,
-    rollerName,
-    rollerUserId,
-    startAt: startAt || Date.now() + 100,
-    seq,
-  }));
+/**
+ * Ask the server to roll. Resolves with {d1, d2} (also broadcast to everyone at the
+ * same moment) or null if the server refused / timed out.
+ */
+export function requestServerRoll() {
+  if (spectatorMode || !mpGame || !roomId || !socket || socket.readyState !== WebSocket.OPEN) {
+    return Promise.resolve(null);
+  }
+  const reqId = `r${Date.now().toString(36)}${(++rollReqCounter).toString(36)}`;
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      pendingRolls.delete(reqId);
+      resolve(null);
+    }, ROLL_TIMEOUT_MS);
+    pendingRolls.set(reqId, { resolve, timer });
+    // Make sure the server has our latest state before it checks whose roll it is.
+    flushPendingBroadcast();
+    socket.send(JSON.stringify({ type: 'roll_request', roomId, reqId }));
+  });
+}
+
+function flushPendingBroadcast() {
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer);
+    broadcastTimer = null;
+    broadcastStateNow();
+  }
 }
 
 export function broadcastGameLog(html, color, meta = {}) {
@@ -169,7 +241,24 @@ export function broadcastPlayerMove(userId, steps, startAt) {
 }
 
 export function handleDiceRollMessage(msg) {
+  if (msg.type === 'roll_denied') {
+    const p = pendingRolls.get(msg.reqId);
+    if (p) {
+      clearTimeout(p.timer);
+      pendingRolls.delete(msg.reqId);
+      p.resolve(null);
+    }
+    return true;
+  }
   if (msg.type !== 'dice_roll') return false;
+  const own = msg.reqId && pendingRolls.get(msg.reqId);
+  if (own) {
+    clearTimeout(own.timer);
+    pendingRolls.delete(msg.reqId);
+    if (msg.seq) lastDiceSeq = Math.max(lastDiceSeq, +msg.seq);
+    own.resolve({ d1: +msg.d1, d2: +msg.d2 });
+    return true;
+  }
   const seq = +(msg.seq || 0);
   if (seq && seq <= lastDiceSeq) return true;
   if (seq) lastDiceSeq = seq;
@@ -197,20 +286,32 @@ export function handlePlayerMoveMessage(msg) {
 }
 
 export function handleSocketMessage(msg, myUserId) {
-  if (msg.type !== 'game_state' || !msg.state) return false;
-  if (msg.from && msg.from === myUserId) return true;
-  if (msg.seq && msg.seq <= lastRemoteSeq) return true;
-  if (msg.seq) lastRemoteSeq = msg.seq;
-  pendingRemoteState = msg.state;
-  if (!importStateRaf) {
-    importStateRaf = requestAnimationFrame(flushRemoteState);
+  if (msg.type === 'state_ack') {
+    const seq = +msg.seq || 0;
+    if (seq > knownSeq) knownSeq = seq;
+    if (seq > lastRemoteSeq) lastRemoteSeq = seq;
+    return true;
   }
+  if (msg.type !== 'game_state' || !msg.state) return false;
+  const seq = +msg.seq || 0;
+  if (!msg.resync) {
+    if (msg.from && msg.from === myUserId) return true;
+    if (seq && seq <= lastRemoteSeq) return true;
+  }
+  if (seq > lastRemoteSeq || msg.resync) lastRemoteSeq = seq;
+  knownSeq = seq;
+  // Apply immediately (each WS message is its own task) so local writes are always
+  // built on top of the newest committed state.
+  pendingRemoteState = msg.state;
+  if (importStateRaf) cancelAnimationFrame(importStateRaf);
+  flushRemoteState();
   return true;
 }
 
 export function broadcastStateNow() {
   if (spectatorMode || applyingRemote || mpBroadcastPaused > 0 || !mpGame || !exportStateFn || !roomId || !socket
     || socket.readyState !== WebSocket.OPEN) return;
+  if (!mayWrite()) return;
   const state = exportStateFn();
   const sig = stateSignature(state);
   if (sig === lastStateSig) return;
@@ -219,15 +320,18 @@ export function broadcastStateNow() {
     type: 'game_state',
     roomId,
     state,
-    seq: Date.now(),
+    baseSeq: knownSeq,
   }));
 }
 
 export function queueStateBroadcast() {
   if (spectatorMode || applyingRemote || mpBroadcastPaused > 0 || !mpGame || !exportStateFn || !roomId || !socket
     || socket.readyState !== WebSocket.OPEN) return;
-  clearTimeout(broadcastTimer);
-  broadcastTimer = setTimeout(broadcastStateNow, STATE_BROADCAST_MS);
+  if (broadcastTimer) return; // already scheduled for this frame
+  broadcastTimer = setTimeout(() => {
+    broadcastTimer = null;
+    broadcastStateNow();
+  }, STATE_BROADCAST_MS);
 }
 
 export function rebuildDeck(source, keys) {

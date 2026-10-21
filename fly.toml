@@ -12,6 +12,13 @@ primary_region = 'lhr'
 [env]
   NODE_ENV = 'production'
   PORT = '3001'
+  # DATA_DIR = '/data'   # uncomment together with [mounts] below to keep rooms/profiles across deploys
+
+# Optional persistence (rooms + profiles survive restarts/deploys):
+#   fly volumes create buildup_data --region lhr --size 1 -a buildupio
+# [mounts]
+#   source = 'buildup_data'
+#   destination = '/data'
 
 [http_service]
   internal_port = 3001

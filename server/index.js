@@ -5,7 +5,8 @@ import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomInt } from 'crypto';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -21,6 +22,11 @@ import {
   createHumanoidSlot,
   humanoidLobbyDeps,
 } from './humanoidLobby.js';
+import {
+  validateIncomingState,
+  noteCommittedState,
+  mayRequestRoll,
+} from './stateGuard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -31,7 +37,14 @@ const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGL
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
 const REJOIN_GRACE_MS = 2 * 60 * 1000;
 const MAX_ROOMS = 400;
-const WS_PING_MS = 30_000;
+const WS_PING_MS = 20_000;
+const DATA_DIR = (process.env.DATA_DIR || '').trim() || null;
+
+/** Strip markup from display names so they can't inject HTML anywhere. */
+function cleanName(name, fallback = 'Player') {
+  const n = String(name ?? '').replace(/[<>&"'`\\]/g, '').replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 18);
+  return n || fallback;
+}
 
 if (IS_PROD && JWT_SECRET === 'dev-secret-change-in-production') {
   console.error('FATAL: Set JWT_SECRET to a long random string in production.');
@@ -77,8 +90,6 @@ const rooms = new Map();
 const roomSubs = new Map();
 const lobbySubs = new Set();
 let lobbyBroadcastTimer = null;
-const roomStateFlush = new Map();
-const ROOM_STATE_FLUSH_MS = 85;
 const profiles = new Map();
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
@@ -121,6 +132,16 @@ function upsertProfile(user) {
     if (user.email) p.email = user.email;
   }
   return p;
+}
+
+function cleanEmoji(e) {
+  if (typeof e !== 'string') return null;
+  const v = e.replace(/[<>&"'`\\]/g, '').trim();
+  return v && v.length <= 8 ? v : null;
+}
+
+function cleanColor(c) {
+  return typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : null;
 }
 
 function secureRoomId() {
@@ -226,7 +247,7 @@ const JOIN_EMOJIS = ['🚂', '✈️', '🚢', '🎩', '🚗', '🚀'];
 
 function pickJoinColor(room, preferred) {
   const taken = room.slots.filter(Boolean).map(s => s.color);
-  let color = preferred || JOIN_COLORS[0];
+  let color = cleanColor(preferred) || JOIN_COLORS[0];
   if (taken.includes(color)) {
     color = JOIN_COLORS.find(c => !taken.includes(c)) || color;
   }
@@ -269,8 +290,8 @@ function seatUserInRoom(room, user, { emoji, color } = {}) {
   if (idx < 0) return { ok: false, error: 'Room full' };
   room.slots[idx] = {
     userId: user.id,
-    name: user.name,
-    emoji: emoji || JOIN_EMOJIS[idx % JOIN_EMOJIS.length],
+    name: cleanName(user.name),
+    emoji: cleanEmoji(emoji) || JOIN_EMOJIS[idx % JOIN_EMOJIS.length],
     color: pickJoinColor(room, color),
     bot: false,
     isHost: false,
@@ -300,9 +321,9 @@ function createPublicRoom(user, { rules, maxPlayers, emoji, color } = {}) {
   };
   room.slots[0] = {
     userId: user.id,
-    name: user.name,
-    emoji: emoji || '🚂',
-    color: color || '#3D5AFE',
+    name: cleanName(user.name),
+    emoji: cleanEmoji(emoji) || '🚂',
+    color: cleanColor(color) || '#3D5AFE',
     bot: false,
     isHost: true,
   };
@@ -397,11 +418,14 @@ function kickPlayerFromGame(room, userId, reason) {
     syncRoomAdminFromState(room, room.gameState);
   }
   room.updatedAt = Date.now();
+  if (!room.gameState) return;
+  room.stateSeq = (room.stateSeq || 0) + 1;
+  room.stateWriter = null;
   const payload = JSON.stringify({
     type: 'game_state',
     roomId: room.id,
     state: room.gameState,
-    seq: room.stateSeq || Date.now(),
+    seq: room.stateSeq,
   });
   const subs = roomSubs.get(room.id);
   if (subs) {
@@ -581,9 +605,34 @@ function broadcastRoom(roomId) {
 }
 
 const LOBBY_CHAT_MAX = 120;
-const LOBBY_CHAT_COOLDOWN_MS = 100;
+const CHAT_BURST = 8;            // messages allowed instantly
+const CHAT_REFILL_MS = 300;      // one more message every 300ms after the burst
 const GAME_LOG_MAX = 200;
-const lobbyChatCooldown = new Map();
+const chatBuckets = new Map();
+
+/** Token bucket: fast typing is fine, only real spam is limited. */
+function takeChatToken(userId, now = Date.now()) {
+  let b = chatBuckets.get(userId);
+  if (!b) {
+    b = { tokens: CHAT_BURST, at: now };
+    chatBuckets.set(userId, b);
+  }
+  const refill = Math.floor((now - b.at) / CHAT_REFILL_MS);
+  if (refill > 0) {
+    b.tokens = Math.min(CHAT_BURST, b.tokens + refill);
+    b.at += refill * CHAT_REFILL_MS;
+  }
+  if (b.tokens <= 0) return false;
+  b.tokens -= 1;
+  return true;
+}
+
+function sendChatError(ws, roomId, text, error) {
+  if (ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: 'chat_error', roomId, text, error }));
+}
+
+let chatSeq = 0;
 
 function sanitizeLobbyChatText(text) {
   if (typeof text !== 'string') return '';
@@ -665,11 +714,16 @@ function sendLobbyChatHistory(ws, room) {
   }));
 }
 
+const LOG_TAG_OK = /^<\/?(b|i|em|strong|br)\s*\/?>$/i;
+const LOG_SPAN_OK = /^<span\s+class="(log-muted|money)">$/i;
+/** Only a handful of formatting tags survive; everything else is escaped. */
 function sanitizeGameLogHtml(html) {
   if (typeof html !== 'string') return '';
-  return html.slice(0, 480)
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/on\w+=/gi, '');
+  return html.slice(0, 600)
+    .replace(/<[^>]*>?/g, tag => {
+      if (LOG_TAG_OK.test(tag) || LOG_SPAN_OK.test(tag) || /^<\/span>$/i.test(tag)) return tag;
+      return tag.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    });
 }
 
 function pushGameLog(room, entry) {
@@ -701,21 +755,25 @@ function broadcastRoomEvent(roomId, payload, fromWs = null) {
 function handleLobbyChatMessage(ws, msg) {
   const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
   const room = rooms.get(rid);
-  if (!room || !isRoomChatter(room, ws.userId)) return;
+  const text = sanitizeLobbyChatText(msg.text);
+  if (!room || !isRoomChatter(room, ws.userId)) {
+    sendChatError(ws, rid, text, 'not_allowed');
+    return;
+  }
+  if (!text) return;
 
   const now = Date.now();
-  const last = lobbyChatCooldown.get(ws.userId) || 0;
-  if (now - last < LOBBY_CHAT_COOLDOWN_MS) return;
-
-  const text = sanitizeLobbyChatText(msg.text);
-  if (!text) return;
+  if (!takeChatToken(ws.userId, now)) {
+    sendChatError(ws, rid, text, 'slow_down');
+    return;
+  }
 
   const profile = chatterProfile(room, ws.userId, ws);
   if (!profile) return;
 
-  lobbyChatCooldown.set(ws.userId, now);
   const entry = {
-    id: `${now}-${String(ws.userId).slice(0, 8)}`,
+    id: `${now}-${++chatSeq}-${String(ws.userId).slice(0, 8)}`,
+    clientId: typeof msg.clientId === 'string' ? msg.clientId.slice(0, 40) : undefined,
     userId: ws.userId,
     name: profile.name,
     emoji: profile.emoji,
@@ -730,21 +788,25 @@ function handleLobbyChatMessage(ws, msg) {
 function handleSpectatorChatMessage(ws, msg) {
   const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
   const room = rooms.get(rid);
-  if (!room || room.status !== 'playing' || !isSpectatorChatter(room, ws.userId)) return;
+  if (!room || room.status !== 'playing' || !isSpectatorChatter(room, ws.userId)) {
+    sendChatError(ws, rid, sanitizeLobbyChatText(msg.text), 'not_allowed');
+    return;
+  }
   if (!isRoomSubscriber(rid, ws)) return;
 
   const now = Date.now();
-  const last = lobbyChatCooldown.get(ws.userId) || 0;
-  if (now - last < LOBBY_CHAT_COOLDOWN_MS) return;
-
   const text = sanitizeLobbyChatText(msg.text);
   if (!text) return;
+  if (!takeChatToken(ws.userId, now)) {
+    sendChatError(ws, rid, text, 'slow_down');
+    return;
+  }
 
-  lobbyChatCooldown.set(ws.userId, now);
   const entry = {
-    id: `sp-${now}-${String(ws.userId).slice(0, 8)}`,
+    id: `sp-${now}-${++chatSeq}-${String(ws.userId).slice(0, 8)}`,
+    clientId: typeof msg.clientId === 'string' ? msg.clientId.slice(0, 40) : undefined,
     userId: ws.userId,
-    name: ws.user?.name || 'Spectator',
+    name: cleanName(ws.user?.name, 'Spectator'),
     emoji: '👁',
     color: '#FB923C',
     text,
@@ -764,9 +826,9 @@ function handleGameLogMessage(ws, msg) {
   if (!html) return;
 
   const entry = {
-    id: `gl-${msg.seq || Date.now()}-${String(ws.userId).slice(0, 8)}`,
+    id: `gl-${Date.now()}-${++chatSeq}`,
     html,
-    color: typeof msg.color === 'string' ? msg.color.slice(0, 24) : '#fff',
+    color: cleanColor(msg.color) || '#fff',
     meta: msg.meta && typeof msg.meta === 'object' ? { tradeId: msg.meta.tradeId, kind: msg.meta.kind } : {},
     at: Date.now(),
     userId: ws.userId,
@@ -781,87 +843,143 @@ function handlePlayerMoveMessage(ws, msg) {
   if (!room || room.status !== 'playing' || !isRoomChatter(room, ws.userId)) return;
 
   const steps = +msg.steps;
-  if (!steps || Math.abs(steps) > 40) return;
+  if (!Number.isInteger(steps) || !steps || Math.abs(steps) > 40) return;
+  const target = msg.userId || ws.userId;
+  if (target !== ws.userId) {
+    const tp = room.players?.find(p => p.userId === target);
+    if (!tp?.bot) return;
+  }
 
   broadcastRoomEvent(rid, {
     type: 'player_move',
     roomId: rid,
-    userId: msg.userId || ws.userId,
+    userId: target,
     steps,
     startAt: +(msg.startAt || Date.now()),
     seq: msg.seq || Date.now(),
   }, ws);
 }
 
-function broadcastDiceRoll(roomId, msg) {
-  const subs = roomSubs.get(roomId);
-  if (!subs) return;
-  const seq = msg.seq || Date.now();
+/** Server-authoritative dice: the server rolls, everyone (incl. roller) gets the same result. */
+function handleRollRequest(ws, msg) {
+  const rid = String(msg.roomId || ws.roomId || '').trim().toLowerCase();
+  const room = rooms.get(rid);
+  const reqId = typeof msg.reqId === 'string' ? msg.reqId.slice(0, 40) : null;
+  const deny = reason => {
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'roll_denied', roomId: rid, reqId, reason }));
+  };
+  if (!room || room.status !== 'playing') return deny('not_playing');
+  if (!isRoomChatter(room, ws.userId)) return deny('not_player');
   const now = Date.now();
-  const clientStart = +(msg.startAt || 0);
-  const startAt = clientStart > now + 40 ? clientStart : now + 120;
+  if (!mayRequestRoll(room, ws.userId, now)) return deny('not_your_roll');
+
+  const d1 = randomInt(1, 7);
+  const d2 = randomInt(1, 7);
+  const state = room.gameState;
+  const cur = state?.players?.[state.turn] || room.players?.[0];
+  room.diceSeq = (room.diceSeq || 0) + 1;
+  room.lastDice = { d1, d2, at: now, pending: true, turnKey: room.turnKey, seq: room.diceSeq };
+  room.updatedAt = now;
   const payload = JSON.stringify({
     type: 'dice_roll',
-    roomId,
-    d1: msg.d1,
-    d2: msg.d2,
-    rollerName: msg.rollerName,
-    rollerUserId: msg.rollerUserId,
-    startAt,
-    seq,
+    roomId: rid,
+    d1,
+    d2,
+    rollerName: cur?.name || 'Player',
+    rollerUserId: cur?.userId || ws.userId,
+    requesterId: ws.userId,
+    reqId,
+    seq: room.diceSeq,
   });
-  for (const ws of subs) {
-    if (ws.readyState === 1) ws.send(payload);
+  const subs = roomSubs.get(rid);
+  if (!subs) return;
+  for (const s of subs) {
+    if (s.readyState === 1) s.send(payload);
   }
 }
 
-function broadcastGameState(roomId, state, fromWs, fromUserId) {
-  const room = rooms.get(roomId);
-  if (room?.status === 'playing') {
-    room.gameState = state;
-    room.stateSeq = Date.now();
-    room.updatedAt = Date.now();
-    syncRoomAdminFromState(room, state);
-    if (Array.isArray(state.voteKickedUsers)) {
-      room.kicked = room.kicked || {};
-      for (const uid of state.voteKickedUsers) {
-        if (uid) room.kicked[uid] = { reason: 'vote', at: Date.now() };
-      }
+function sendToRoom(roomId, payload, exceptWs = null) {
+  const subs = roomSubs.get(roomId);
+  if (!subs) return;
+  const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  for (const ws of subs) {
+    if (ws !== exceptWs && ws.readyState === 1) ws.send(data);
+  }
+}
+
+function sendResync(ws, room, reason) {
+  if (ws.readyState !== 1) return;
+  ws.send(JSON.stringify({
+    type: 'game_state',
+    roomId: room.id,
+    state: room.gameState,
+    seq: room.stateSeq || 0,
+    resync: true,
+    reason,
+  }));
+}
+
+/**
+ * Validate + commit + fan out a client's state immediately (no batching delay).
+ * Optimistic concurrency: a write must be based on the latest committed state,
+ * unless it continues the sender's own uncommitted chain of writes.
+ */
+function handleGameStateMessage(ws, msg) {
+  const rid = String(msg.roomId || '').trim().toLowerCase();
+  const room = rooms.get(rid);
+  if (!room || room.status !== 'playing') return;
+  if (!isRoomChatter(room, ws.userId)) return;
+
+  const seq = room.stateSeq || 0;
+  const base = Number.isFinite(+msg.baseSeq) ? +msg.baseSeq : -1;
+  const chained = room.stateWriter === ws.userId && base >= (room.chainBase ?? 0);
+  if (room.gameState && base !== seq && !chained) {
+    sendResync(ws, room, 'stale');
+    return;
+  }
+
+  let next;
+  try {
+    next = JSON.parse(JSON.stringify(msg.state));
+  } catch {
+    return;
+  }
+  const prev = room.gameState || null;
+  const result = validateIncomingState({ room, prev, next, userId: ws.userId });
+  if (!result.ok) {
+    room.rejects = (room.rejects || 0) + 1;
+    if (!IS_PROD || room.rejects % 20 === 1) {
+      console.warn(`[state] room ${rid} rejected update from ${ws.userId}: ${result.reason}`);
+    }
+    if (prev) sendResync(ws, room, result.reason);
+    return;
+  }
+
+  if (base === seq) room.chainBase = base;
+  room.stateWriter = ws.userId;
+  room.stateSeq = seq + 1;
+  room.gameState = result.state;
+  room.updatedAt = Date.now();
+  noteCommittedState(room, prev, result.state);
+  syncRoomAdminFromState(room, result.state);
+  if (Array.isArray(result.state.voteKickedUsers)) {
+    room.kicked = room.kicked || {};
+    for (const uid of result.state.voteKickedUsers) {
+      if (uid && !room.kicked[uid]) room.kicked[uid] = { reason: 'vote', at: Date.now() };
     }
   }
-  let pending = roomStateFlush.get(roomId);
-  if (!pending) {
-    pending = { fromWs, fromUserId, timer: null };
-    roomStateFlush.set(roomId, pending);
-  }
-  pending.state = state;
-  pending.fromWs = fromWs;
-  pending.fromUserId = fromUserId;
-  if (pending.timer) return;
-  pending.timer = setTimeout(() => flushGameStateBroadcast(roomId), ROOM_STATE_FLUSH_MS);
-}
 
-function flushGameStateBroadcast(roomId) {
-  const pending = roomStateFlush.get(roomId);
-  if (!pending) return;
-  pending.timer = null;
-  const room = rooms.get(roomId);
-  const state = pending.state;
-  const fromWs = pending.fromWs;
-  const fromUserId = pending.fromUserId;
-  const subs = roomSubs.get(roomId);
-  if (!subs || !state) return;
-  const seq = room?.stateSeq || Date.now();
-  const payload = JSON.stringify({
-    type: 'game_state',
-    roomId,
-    state,
-    seq,
-    from: fromUserId,
-  });
-  for (const ws of subs) {
-    if (ws.readyState === 1 && ws !== fromWs) ws.send(payload);
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'state_ack', roomId: rid, seq: room.stateSeq }));
   }
+  sendToRoom(rid, {
+    type: 'game_state',
+    roomId: rid,
+    state: result.state,
+    seq: room.stateSeq,
+    from: ws.userId,
+  }, ws);
+  if (result.state.over && !prev?.over) scheduleSave();
 }
 
 function authMiddleware(req, res, next) {
@@ -879,6 +997,7 @@ function signUser(user, remember = true) {
   const expiresIn = remember ? '30d' : '1d';
   const token = jwt.sign(user, JWT_SECRET, { expiresIn });
   const profile = profileForClient(upsertProfile(user));
+  scheduleSave();
   return { token, user, profile };
 }
 
@@ -886,7 +1005,7 @@ app.use('/api/auth', rateLimit({ windowMs: 60_000, max: 40 }));
 app.use('/api/rooms', rateLimit({ windowMs: 60_000, max: 150 }));
 
 app.post('/api/auth/guest', (req, res) => {
-  const name = String(req.body?.name || 'Guest').trim().slice(0, 18) || 'Guest';
+  const name = cleanName(req.body?.name, 'Guest');
   const remember = req.body?.remember !== false;
   const user = { id: `guest_${randomBytes(8).toString('hex')}`, mode: 'guest', name, photo: null };
   res.json(signUser(user, remember));
@@ -903,7 +1022,7 @@ app.post('/api/auth/google', async (req, res) => {
     const user = {
       id: p.sub,
       mode: 'google',
-      name: p.name || p.email?.split('@')[0] || 'Player',
+      name: cleanName(p.name || p.email?.split('@')[0]),
       email: p.email,
       photo: p.picture || null,
     };
@@ -922,7 +1041,7 @@ app.patch('/api/profile', authMiddleware, (req, res) => {
   const p = upsertProfile(req.user);
   const { name } = req.body || {};
   if (name != null) {
-    const n = String(name).trim().slice(0, 18);
+    const n = cleanName(name, '');
     if (n) {
       p.name = n;
       req.user.name = n;
@@ -1022,9 +1141,9 @@ app.post('/api/rooms', authMiddleware, (req, res) => {
   };
   room.slots[0] = {
     userId: req.user.id,
-    name: req.user.name,
-    emoji: emoji || '🚂',
-    color: color || '#3D5AFE',
+    name: cleanName(req.user.name),
+    emoji: cleanEmoji(emoji) || '🚂',
+    color: cleanColor(color) || '#3D5AFE',
     bot: false,
     isHost: true,
   };
@@ -1175,6 +1294,16 @@ app.post('/api/rooms/:id/rematch', authMiddleware, (req, res) => {
   if (!wasRoomMember(room, req.user.id)) {
     return res.status(403).json({ error: 'Not in this room' });
   }
+  if (room.status === 'playing') {
+    // Never let one player wipe a live game: only after it is over,
+    // or when nobody else (human) is still playing.
+    const gs = room.gameState;
+    const othersPlaying = (gs?.players || room.players || []).some(p =>
+      !p.bot && p.userId !== req.user.id && !p.dead && !room.kicked?.[p.userId]);
+    if (gs && !gs.over && othersPlaying) {
+      return res.status(409).json({ error: 'in_progress', message: 'The game is still in progress.' });
+    }
+  }
   if (room.status === 'playing' && room.players?.length) {
     const slots = Array.from({ length: room.maxPlayers }, () => null);
     for (const p of room.players) {
@@ -1201,7 +1330,9 @@ app.post('/api/rooms/:id/rematch', authMiddleware, (req, res) => {
   delete room.players;
   delete room.absent;
   delete room.kicked;
+  delete room.lastDice;
   room.stateSeq = 0;
+  room.stateWriter = null;
   room.updatedAt = Date.now();
   broadcastRoom(room.id);
   res.json({ room: roomToClient(room, req.user.id) });
@@ -1272,6 +1403,15 @@ app.post('/api/rooms/:id/launch', authMiddleware, (req, res) => {
   room.status = 'playing';
   room.updatedAt = Date.now();
   room.gameLog = [];
+  room.gameState = null;
+  room.stateSeq = 0;
+  room.stateWriter = null;
+  room.chainBase = 0;
+  room.lastDice = null;
+  room.diceSeq = 0;
+  room.turnSince = Date.now();
+  room.turnKey = 1;
+  room.mint = null;
 
   room.players = players;
   room.adminId = finalAdminId;
@@ -1320,36 +1460,152 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(distPath, 'index.html'), err => { if (err) next(); });
 });
 
+/* ---------- optional persistence (set DATA_DIR to a mounted volume) ---------- */
+let saveTimer = null;
+function snapshotPath() {
+  return DATA_DIR ? path.join(DATA_DIR, 'buildup-state.json') : null;
+}
+function saveStateNow() {
+  const file = snapshotPath();
+  if (!file) return;
+  try {
+    const data = {
+      savedAt: Date.now(),
+      profiles: [...profiles.values()],
+      rooms: [...rooms.values()].map(r => ({ ...r, humanoidQueue: [] })),
+    };
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data));
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    console.warn('[persist] save failed:', e.message);
+  }
+}
+function scheduleSave() {
+  if (!DATA_DIR || saveTimer) return;
+  saveTimer = setTimeout(() => { saveTimer = null; saveStateNow(); }, 2000);
+}
+function loadState() {
+  const file = snapshotPath();
+  if (!file || !fs.existsSync(file)) return;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const p of data.profiles || []) profiles.set(p.id, p);
+    const now = Date.now();
+    for (const r of data.rooms || []) {
+      if (!r?.id || now - (r.updatedAt || 0) > ROOM_TTL_MS) continue;
+      // Everyone was disconnected by the restart: give them the normal rejoin window.
+      if (r.status === 'playing') {
+        r.absent = {};
+        for (const p of r.players || []) {
+          if (!p.bot && p.userId) r.absent[p.userId] = { since: now, until: now + REJOIN_GRACE_MS };
+        }
+        r.turnSince = now;
+      }
+      rooms.set(r.id, r);
+    }
+    console.log(`[persist] restored ${profiles.size} profiles, ${rooms.size} rooms`);
+  } catch (e) {
+    console.warn('[persist] load failed:', e.message);
+  }
+}
+if (DATA_DIR) {
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch { /* ignore */ }
+  loadState();
+  setInterval(saveStateNow, 15_000);
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => { saveStateNow(); process.exit(0); });
+  }
+}
+
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  maxPayload: 256 * 1024,
+  perMessageDeflate: false, // lower latency; game frames are small
+});
+
+function verifyToken(token) {
+  if (!token) return null;
+  try { return jwt.verify(token, JWT_SECRET); } catch { return null; }
+}
+
+function handleRoomSubscribe(ws, msg) {
+  const rid = String(msg.roomId).trim().toLowerCase();
+  const room = rooms.get(rid);
+  if (room?.private && room.status === 'playing' && !wasRoomMember(room, ws.userId)) return;
+  if (ws.roomId && ws.roomId !== rid) roomSubs.get(ws.roomId)?.delete(ws);
+  ws.roomId = rid;
+  if (!roomSubs.has(rid)) roomSubs.set(rid, new Set());
+  roomSubs.get(rid).add(ws);
+  if (!room) return;
+  clearAbsent(room, ws.userId);
+  ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room, ws.userId) }));
+  sendLobbyChatHistory(ws, room);
+  sendGameLogHistory(ws, room);
+  if (room.status === 'playing' && room.players) {
+    ws.send(JSON.stringify({
+      type: 'game_start',
+      roomId: room.id,
+      rules: room.rules,
+      players: room.players,
+      adminId: room.adminId ?? 0,
+      yourUserId: ws.userId,
+    }));
+    if (room.gameState) {
+      ws.send(JSON.stringify({
+        type: 'game_state',
+        roomId: room.id,
+        state: room.gameState,
+        seq: room.stateSeq || 0,
+        resync: true,
+      }));
+    }
+  }
+}
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const lobbyOnly = url.searchParams.get('lobby') === '1';
-  const token = url.searchParams.get('token');
-  if (lobbyOnly) {
-    ws.lobbyOnly = true;
-    if (token) {
-      try {
-        ws.user = jwt.verify(token, JWT_SECRET);
-        ws.userId = ws.user.id;
-      } catch { /* public lobby feed — token optional */ }
-    }
-  } else {
-    try {
-      ws.user = jwt.verify(token, JWT_SECRET);
-      ws.userId = ws.user.id;
-    } catch {
-      ws.close(4001, 'Unauthorized');
-      return;
-    }
+  // Legacy: token in query string. New clients send {type:'auth'} as the first frame
+  // so the JWT never appears in URLs / proxy logs.
+  const queryUser = verifyToken(url.searchParams.get('token'));
+  ws.lobbyOnly = lobbyOnly;
+  if (queryUser) {
+    ws.user = queryUser;
+    ws.userId = queryUser.id;
+  }
+  let authTimer = null;
+  if (!lobbyOnly && !ws.userId) {
+    authTimer = setTimeout(() => {
+      if (!ws.userId) ws.close(4001, 'Unauthorized');
+    }, 8000);
   }
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', raw => {
+    ws.isAlive = true;
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'ping') {
+      ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
+      return;
+    }
+    if (msg.type === 'auth') {
+      const u = verifyToken(msg.token);
+      if (!u) {
+        if (!lobbyOnly) ws.close(4001, 'Unauthorized');
+        return;
+      }
+      ws.user = u;
+      ws.userId = u.id;
+      clearTimeout(authTimer);
+      ws.send(JSON.stringify({ type: 'auth_ok' }));
+      return;
+    }
     if (msg.type === 'subscribe_lobby') {
       lobbySubs.add(ws);
       ws.lobbyFeed = true;
@@ -1361,78 +1617,44 @@ wss.on('connection', (ws, req) => {
       ws.lobbyFeed = false;
       return;
     }
-    if (ws.lobbyOnly) return;
-    if (msg.type === 'subscribe' && msg.roomId) {
-      const rid = String(msg.roomId).trim().toLowerCase();
-      ws.roomId = rid;
-      if (!roomSubs.has(rid)) roomSubs.set(rid, new Set());
-      roomSubs.get(rid).add(ws);
-      const room = rooms.get(rid);
-      if (room) {
-        clearAbsent(room, ws.userId);
-        ws.send(JSON.stringify({ type: 'room_update', room: roomToClient(room, ws.userId) }));
-        sendLobbyChatHistory(ws, room);
-        sendGameLogHistory(ws, room);
-        if (room.status === 'playing' && room.players) {
-          ws.send(JSON.stringify({
-            type: 'game_start',
-            roomId: room.id,
-            rules: room.rules,
-            players: room.players,
-            adminId: room.adminId ?? 0,
-            yourUserId: ws.userId,
-          }));
-          if (room.gameState) {
-            ws.send(JSON.stringify({
-              type: 'game_state',
-              roomId: room.id,
-              state: room.gameState,
-              seq: room.stateSeq || Date.now(),
-            }));
-          }
-        }
-      }
-    }
-    if (msg.type === 'lobby_chat' && msg.roomId) {
-      handleLobbyChatMessage(ws, msg);
-      return;
-    }
-    if (msg.type === 'spectator_chat' && msg.roomId) {
-      handleSpectatorChatMessage(ws, msg);
-      return;
-    }
-    if (msg.type === 'game_log' && msg.roomId) {
-      handleGameLogMessage(ws, msg);
-      return;
-    }
-    if (msg.type === 'player_move' && msg.roomId) {
-      handlePlayerMoveMessage(ws, msg);
-      return;
-    }
-    if (msg.type === 'dice_roll' && msg.roomId) {
-      const rid = String(msg.roomId).trim().toLowerCase();
-      const room = rooms.get(rid);
-      if (room?.status === 'playing') {
-        room.updatedAt = Date.now();
-        broadcastDiceRoll(rid, msg);
-      }
-    }
-    if (msg.type === 'game_state' && msg.roomId && msg.state) {
-      const rid = String(msg.roomId).trim().toLowerCase();
-      const room = rooms.get(rid);
-      if (room?.status === 'playing') {
-        room.updatedAt = Date.now();
-        broadcastGameState(rid, msg.state, ws, ws.userId);
-      }
+    if (ws.lobbyOnly || !ws.userId) return;
+    switch (msg.type) {
+      case 'subscribe':
+        if (msg.roomId) handleRoomSubscribe(ws, msg);
+        return;
+      case 'lobby_chat':
+        if (msg.roomId) handleLobbyChatMessage(ws, msg);
+        return;
+      case 'spectator_chat':
+        if (msg.roomId) handleSpectatorChatMessage(ws, msg);
+        return;
+      case 'game_log':
+        if (msg.roomId) handleGameLogMessage(ws, msg);
+        return;
+      case 'player_move':
+        if (msg.roomId) handlePlayerMoveMessage(ws, msg);
+        return;
+      case 'roll_request':
+        if (msg.roomId) handleRollRequest(ws, msg);
+        return;
+      case 'game_state':
+        if (msg.roomId && msg.state) handleGameStateMessage(ws, msg);
+        return;
+      default:
+        // 'dice_roll' from clients is ignored: dice are rolled by the server now.
     }
   });
 
   ws.on('close', () => {
+    clearTimeout(authTimer);
     lobbySubs.delete(ws);
     if (ws.roomId) {
       const room = rooms.get(ws.roomId);
-      if (room && ws.userId) markAbsent(room, ws.userId);
-      if (roomSubs.has(ws.roomId)) roomSubs.get(ws.roomId).delete(ws);
+      const subs = roomSubs.get(ws.roomId);
+      if (subs) subs.delete(ws);
+      // Only mark absent if this user has no other live socket in the room (e.g. a fast reconnect).
+      const stillHere = subs && [...subs].some(s => s.userId === ws.userId && s.readyState === 1);
+      if (room && ws.userId && !stillHere) markAbsent(room, ws.userId);
     }
   });
 });

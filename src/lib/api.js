@@ -75,7 +75,11 @@ export function markAbsentKeepalive(id) {
 export function connectRoomSocket(onMessage) {
   const token = getToken();
   if (!token) return null;
-  const ws = new WebSocket(`${wsUrl()}?token=${encodeURIComponent(token)}`);
+  // Token goes in the first frame, not the URL (keeps it out of proxy/server logs).
+  const ws = new WebSocket(wsUrl());
+  ws.addEventListener('open', () => {
+    ws.send(JSON.stringify({ type: 'auth', token }));
+  }, { once: true });
   ws.onmessage = ev => {
     try { onMessage(JSON.parse(ev.data)); } catch { /* ignore */ }
   };
@@ -84,11 +88,7 @@ export function connectRoomSocket(onMessage) {
 }
 
 export function connectLobbyFeedSocket(onMessage) {
-  const token = getToken();
-  const url = token
-    ? `${wsUrl()}?lobby=1&token=${encodeURIComponent(token)}`
-    : `${wsUrl()}?lobby=1`;
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(`${wsUrl()}?lobby=1`);
   ws.onmessage = ev => {
     try { onMessage(JSON.parse(ev.data)); } catch { /* ignore */ }
   };

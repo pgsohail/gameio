@@ -4792,3 +4792,5 @@ body.game-active.game-chat-hidden #hudLeft .portfolio-list{
   .dice-stage{height:min(200px,38vw)}
   #tilt{transform:scale(var(--scene-scale,1))!important}
 }
+.chat-msg__text--failed{opacity:.8;outline:1px dashed rgba(255,90,90,.6)}
+.chat-msg__failed{color:#ff6b6b;font-size:.75em;white-space:nowrap}

@@ -22,7 +22,7 @@ import { BRIGHT_COLORS } from '../lib/colors.js';
 import { getUser } from '../lib/auth.js';
 import {
   isMpGame, isMultiplayerActive, isApplyingRemote, queueStateBroadcast,
-  broadcastStateNow, broadcastDiceRoll, broadcastGameLog, broadcastPlayerMove,
+  broadcastStateNow, requestServerRoll, broadcastGameLog, registerWriteGate, noteLocalIntent, broadcastPlayerMove,
   setMpBroadcastPaused,
   registerStateSync, registerStateImporter,
   registerDiceRollHandler, registerGameLogHandler, registerPlayerMoveHandler,
@@ -175,7 +175,6 @@ const PLAYER_COLORS=BRIGHT_COLORS;
 const TOKEN_EMOJI=['🚂','✈️','🚢','🎩','🚗','🚀','🐪','🦁','🏎️','🛸','🎒','🌍','🛳️','🚁','🏍️','🐘'];
 const DIFF={relaxed:{buyBuf:350,buildRes:450,bidMult:0.9},classic:{buyBuf:180,buildRes:250,bidMult:1.1},shark:{buyBuf:60,buildRes:120,bidMult:1.35}};
 let tradeSeq=1;
-const DICE_SYNC_LEAD_MS = 250;
 const TURN_LIMIT_MS = 180_000;
 const VOTE_KICK_AFTER_MS = 90_000;
 const TURN_ENGAGE_WARN_MS = 20_000;
@@ -430,6 +429,7 @@ function importGameState(state) {
     const winner = alive()[0];
     if (winner) showGameOverModal(winner);
   }
+  actorLatch = !S.spectating && mayControlTurn(S.cur);
   checkVoteKick();
   transferGameAdmin();
   ensureTurnContinuity();
@@ -509,21 +509,25 @@ function advanceTurn() {
 function ensureTurnContinuity() {
   if (S.over || !S.cur?.dead) return;
   if (isMpGame() && !localRunsBots()) return;
+  if (isMpGame()) noteLocalIntent();
   advanceTurn();
 }
 
-function onRemoteDiceRoll(msg) {
+function onRemoteDiceRoll(roll) {
   const uid = getUser()?.id;
-  const isOwn = msg.rollerUserId && uid && msg.rollerUserId === uid;
-  const d1 = +msg.d1;
-  const d2 = +msg.d2;
-  if (d1 < 1 || d2 < 1) return;
-  const startAt = msg.startAt || Date.now();
+  // Our own requests are resolved in requestServerRoll(); this is everyone else's roll.
+  if (roll.requesterId && uid && roll.requesterId === uid) return;
+  const d1 = +roll.d1;
+  const d2 = +roll.d2;
+  if (!(d1 >= 1 && d2 >= 1)) return;
+  // Animate on arrival: all clients receive the broadcast at about the same moment,
+  // and we avoid trusting clock skew between machines.
+  const startAt = Date.now();
   remoteRollUntil = startAt + DICE_ROLL_MS + 200;
   S.dice = [d1, d2];
-  if (!isOwn) Dice3D.rollAt(d1, d2, startAt);
+  Dice3D.rollAt(d1, d2, startAt);
   const p = S.players[S.turn];
-  const label = msg.rollerName || p?.name || 'Player';
+  const label = roll.rollerName || p?.name || 'Player';
   const total = d1 + d2;
   const isDouble = d1 === d2 && S.rules.doubles;
   if (S.phase === 'jail' || p?.jail) {
@@ -546,6 +550,16 @@ function postSyncTurn() {
 
 registerStateSync(exportGameState);
 registerStateImporter(importGameState);
+// True while this client has been the turn actor since the last state it imported —
+// so the final write of a turn (e.g. End Turn handing over to the next player) still goes out.
+let actorLatch = false;
+registerWriteGate(() => {
+  if (S.spectating) return false;
+  if (mayControlTurn(S.cur)) { actorLatch = true; return true; } // whoever's turn it is (or bot runner on a bot turn)
+  if (actorLatch) return true;
+  if (A && localRunsBots()) return true;    // the auction is driven by the bot runner
+  return false;
+});
 
 function isMpHost() {
   if (!isMpGame()) return true;
@@ -848,18 +862,30 @@ document.addEventListener('click',e=>{
   }
 });
 
-function rollDiceAndBroadcast(p){
-  const [d1, d2] = rollDicePair(6);
-  S.dice=[d1,d2];
-  const startAt=isMpGame()?Date.now()+DICE_SYNC_LEAD_MS:Date.now();
-  remoteRollUntil=startAt+DICE_ROLL_MS+320;
-  if(isMpGame()){
-    broadcastDiceRoll(d1,d2,p.name,p.userId,startAt);
-    Dice3D.rollAt(d1,d2,startAt);
-    return {total:d1+d2,startAt};
+/**
+ * Roll the dice. Single player: local crypto RNG. Multiplayer: the server rolls
+ * (anti-cheat) and broadcasts the same result to every client at once.
+ * cb({total,startAt}) on success; onFail() if the server refused / timed out.
+ */
+function rollDiceThen(p,cb,onFail){
+  const apply=(d1,d2)=>{
+    S.dice=[d1,d2];
+    const startAt=Date.now();
+    remoteRollUntil=startAt+DICE_ROLL_MS+320;
+    if(isMpGame())Dice3D.rollAt(d1,d2,startAt);
+    else Dice3D.roll(d1,d2);
+    cb({total:d1+d2,startAt});
+  };
+  if(!isMpGame()){
+    const [d1,d2]=rollDicePair(6);
+    apply(d1,d2);
+    return;
   }
-  Dice3D.roll(d1,d2);
-  return {total:d1+d2,startAt};
+  requestServerRoll().then(r=>{
+    if(S.over)return;
+    if(!r||!(r.d1>=1&&r.d2>=1)){onFail?.();return;}
+    apply(r.d1,r.d2);
+  });
 }
 function msUntilDiceDone(startAt){
   return Math.max(0,(startAt||Date.now())+DICE_ROLL_MS-Date.now());
@@ -1060,6 +1086,7 @@ function handleTurnTimeout(){
   if(elapsed<TURN_LIMIT_MS)return;
   if(isMpGame()&&!isMpHost())return;
   turnTimeoutHandled=true;
+  if(isMpGame())noteLocalIntent();
   if(cur.turnEngaged&&!cur.turnBonusUsed){
     cur.turnBonusUsed=true;
     S.turnStartedAt=Date.now();
@@ -1102,6 +1129,7 @@ function checkVoteKick() {
   const count=S.voteKick.voters.filter(id=>valid.has(id)&&id!==cur.id).length;
   const mayExecute=!isMpGame()||isMpHost();
   if(count>=needed&&mayExecute){
+    if(isMpGame())noteLocalIntent();
     log(`🗳️ Vote kick — <b>${cur.name}</b> is removed for stalling.`,cur);
     if(cur.userId){
       if(!S.voteKickedUsers)S.voteKickedUsers=[];
@@ -1396,8 +1424,12 @@ function renderTradeCard(){
   if(pastFold&&!hasPast)pastFold.open=false;
 }
 function msg(t){const el=$('hubMsg');if(el)el.textContent=t;}
+const LOG_SAFE_TAG=/^<\/?(b|i|em|strong|br)\s*\/?>$|^<span class="(log-muted|money)">$|^<\/span>$/i;
+function sanitizeLogHtml(html){
+  return String(html||'').replace(/<[^>]*>?/g,tag=>LOG_SAFE_TAG.test(tag)?tag:tag.replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+}
 function formatLogHtml(html){
-  return html.replace(/\$([\d,]+)/g,'<span class="money">$$$1</span>');
+  return sanitizeLogHtml(html).replace(/\$([\d,]+)/g,'<span class="money">$$$1</span>');
 }
 function logPlainText(html){
   const el=document.createElement('div');
@@ -1958,8 +1990,20 @@ function humanRoll(){
 function doRoll(p){
   if(!mayControlTurn(p))return;
   if(playerInDebt(p))return;
+  if(rollInFlight)return;
+  rollInFlight=true;
+  const prevPhase=S.phase;
   S.phase='moving';renderDock();
-  const {total,startAt}=rollDiceAndBroadcast(p);
+  rollDiceThen(p,r=>{rollInFlight=false;continueRoll(p,r);},()=>{
+    rollInFlight=false;
+    if(S.cur===p&&S.phase==='moving'){S.phase=prevPhase==='moving'?'roll':prevPhase;}
+    if(!p.bot)msg('Connection hiccup — tap Roll again.');
+    renderAll();
+    if(p.bot&&localRunsBots())setTimeout(()=>{if(S.cur===p&&S.phase==='roll')doRoll(p);},600);
+  });
+}
+let rollInFlight=false;
+function continueRoll(p,{total,startAt}){
   const isDouble=S.dice[0]===S.dice[1]&&S.rules.doubles;
   if (isMpGame() && mayControlTurn(p)) {
     log(`<b>${p.name}</b> rolls <b>${S.dice[0]} + ${S.dice[1]} = ${total}</b>${isDouble ? ' (doubles!)' : ''}.`, p);
@@ -1977,8 +2021,11 @@ function animateMove(p,steps,done){
   const shouldBroadcast = isMpGame() && !isApplyingRemote() && !S.spectating
     && (mayControlTurn(p) || (p.bot && localRunsBots()));
   if (shouldBroadcast) broadcastPlayerMove(p.userId, steps, Date.now() + 80);
+  // Pause outgoing state while any token is mid-animation. Only toggle on the
+  // empty<->non-empty edge: overlapping animations used to leak the pause counter
+  // and freeze a client's sync for the rest of the game.
+  if (animatingPlayers.size === 0) setMpBroadcastPaused(true);
   animatingPlayers.add(p.id);
-  setMpBroadcastPaused(true);
   const dir=steps<0?-1:1;let left=Math.abs(steps);
   const step=()=>{
     if(left===0){
@@ -1988,7 +2035,9 @@ function animateMove(p,steps,done){
       return;
     }
     p.pos=(p.pos+dir+N)%N;
-    if(p.pos===0&&dir===1){
+    // Only the client that controls this move pays salary; spectators/remote
+    // clients just animate and get the cash from the synced state.
+    if(p.pos===0&&dir===1&&(!isMpGame()||shouldBroadcast)){
       p.cash+=S.rules.salary;
       if (!isMpGame() || S.spectating || isApplyingRemote()) {
         log(`<b>${p.name}</b> passes START and collects $${S.rules.salary.toLocaleString()}.`,p);
@@ -2133,8 +2182,19 @@ function useJailCard(p){
 }
 function jailRoll(p){
   if(!mayControlTurn(p))return;
+  if(rollInFlight)return;
+  rollInFlight=true;
+  const prevPhase=S.phase;
   S.phase='moving';renderDock();
-  const {total,startAt}=rollDiceAndBroadcast(p);
+  rollDiceThen(p,r=>{rollInFlight=false;continueJailRoll(p,r);},()=>{
+    rollInFlight=false;
+    if(S.cur===p&&S.phase==='moving')S.phase=prevPhase==='moving'?'jail':prevPhase;
+    if(!p.bot)msg('Connection hiccup — tap Roll again.');
+    renderAll();
+    if(p.bot&&localRunsBots())setTimeout(()=>{if(S.cur===p&&S.phase==='jail')jailRoll(p);},600);
+  });
+}
+function continueJailRoll(p,{total,startAt}){
   setTimeout(()=>{
     if(S.dice[0]===S.dice[1]){
       p.jail=false;p.jailTurns=0;
@@ -2862,7 +2922,7 @@ function maintainOpenTrades(){
       changed=true;
     }
   }
-  if(changed&&isMultiplayerActive())broadcastStateNow();
+  if(changed&&isMultiplayerActive()){noteLocalIntent();broadcastStateNow();}
 }
 function cancelOpenTrade(id){
   const trade=getOpenTrade(id);
@@ -3248,6 +3308,7 @@ function scheduleBotTradeResponse(trade){
 function respondBotToTrade(tradeId){
   const trade=getOpenTrade(tradeId);
   if(!trade||trade.status!=='pending')return;
+  if(isMpGame())noteLocalIntent();
   const from=S.players[trade.fromId],to=S.players[trade.toId];
   const v=botEvaluateTrade(to,trade);
   if(v.action==='accept'){
